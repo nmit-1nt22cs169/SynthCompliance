@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Runtime data: populated by the pipeline or by `npm run dev:mockN`, not source
+public/data/*
+!public/data/.gitkeep

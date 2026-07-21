@@ -1,11 +1,12 @@
-// Generates the four data-contract files under public/data/.
+// Generates the four data-contract files under mockData/mockData_1/.
 // Deterministic (seeded RNG) so the dataset is stable across regenerations.
+// Run `npm run dev:mock1` afterward to load it into public/data/ for the UI.
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
+const OUT_DIR = path.join(__dirname, '..', 'mockData', 'mockData_1');
 
 function mulberry32(seed) {
   return function () {
