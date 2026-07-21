@@ -1,0 +1,139 @@
+{
+  "run_id": "run_20260722_002_degraded",
+  "generated_at": "2026-07-21T18:38:12.238822Z",
+  "dataset_targets": {
+    "audit_logs": 500,
+    "violations": 150,
+    "qa_pairs": 100,
+    "investigation_summaries": 2
+  },
+  "dataset_actual": {
+    "audit_logs": 500,
+    "violations": 150,
+    "qa_pairs": 100,
+    "investigation_summaries": 2
+  },
+  "validators": {
+    "schema_validity": {
+      "target_pass_rate": 0.98,
+      "actual_pass_rate": 0.947,
+      "rows_checked": 500,
+      "rows_failed": 3,
+      "status": "warn",
+      "flagged": [
+        {
+          "log_id": "log_0012",
+          "field": "timestamp",
+          "issue": "non-sequential timestamp"
+        },
+        {
+          "log_id": "log_0088",
+          "field": "user_id",
+          "issue": "not found in master roster"
+        },
+        {
+          "log_id": "log_0203",
+          "field": "sensitivity",
+          "issue": "invalid enum value 'extreme'"
+        }
+      ]
+    },
+    "pii_leakage": {
+      "target_detections": 0,
+      "actual_detections": 2,
+      "rows_checked": 500,
+      "status": "fail",
+      "flagged": [
+        {
+          "log_id": "log_0031",
+          "entity": "EMAIL_ADDRESS",
+          "value_redacted": "a***@c***.com"
+        },
+        {
+          "log_id": "log_0077",
+          "entity": "PERSON",
+          "value_redacted": "J*** S***"
+        }
+      ]
+    },
+    "duplicate_check": {
+      "target_max_rate": 0.02,
+      "actual_rate": 0.031,
+      "rows_checked": 500,
+      "rows_flagged": 3,
+      "status": "fail",
+      "flagged": [
+        {
+          "log_id": "log_0099",
+          "duplicate_of": "log_0098",
+          "similarity": 0.97
+        },
+        {
+          "log_id": "log_0150",
+          "duplicate_of": "log_0004",
+          "similarity": 0.95
+        },
+        {
+          "log_id": "log_0210",
+          "duplicate_of": "log_0209",
+          "similarity": 0.93
+        }
+      ]
+    },
+    "label_alignment": {
+      "target_pass_rate": 0.95,
+      "actual_pass_rate": 0.912,
+      "rows_checked": 150,
+      "rows_failed": 2,
+      "status": "warn",
+      "flagged": [
+        {
+          "violation_id": "viol_0007",
+          "issue": "cited log_id does not contain conflicting role evidence"
+        },
+        {
+          "violation_id": "viol_0044",
+          "issue": "severity mismatch with control mapping"
+        }
+      ]
+    },
+    "scenario_coverage": {
+      "normal": 275,
+      "suspicious": 100,
+      "violation": 150,
+      "false_positive": 25
+    }
+  },
+  "pipeline_stages": [
+    {
+      "stage": "policy_templates",
+      "status": "completed",
+      "duration_ms": 140
+    },
+    {
+      "stage": "event_generator",
+      "status": "completed",
+      "duration_ms": 8474
+    },
+    {
+      "stage": "scenario_composer",
+      "status": "completed",
+      "duration_ms": 2690
+    },
+    {
+      "stage": "regulation_annotator",
+      "status": "completed",
+      "duration_ms": 5650
+    },
+    {
+      "stage": "nemo_curator",
+      "status": "completed",
+      "duration_ms": 6205
+    },
+    {
+      "stage": "output_datasets",
+      "status": "completed",
+      "duration_ms": 390
+    }
+  ]
+}
