@@ -224,10 +224,3 @@ The TypeScript types the UI actually compiles against live in
 [`src/types.ts`](./src/types.ts) — if this document and that file ever
 disagree, `src/types.ts` wins and this document is out of date and should
 be fixed.
-
-## Reference implementation / examples
-
-`scripts/generate-data.mjs` generates a full example dataset matching this
-contract exactly (into `mockData/mockData_1/`) — useful as a working
-reference if a snippet above is ambiguous. See the main
-[README](./README.md) for how mock data plugs into local dev.

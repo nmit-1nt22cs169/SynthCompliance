@@ -18,12 +18,6 @@ npm run dev
 
 Open http://localhost:5173 — see **[docs/DEMO.md](./docs/DEMO.md)** for the full judge demo script.
 
-### Instant demo (no API)
-
-```bash
-npm run dev:mock1 && npm run dev
-```
-
 ## Architecture
 
 | Layer | Path |
