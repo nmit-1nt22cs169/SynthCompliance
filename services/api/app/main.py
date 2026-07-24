@@ -198,7 +198,10 @@ def export_bundle():
 
 @app.post("/api/seed")
 def load_seed() -> dict[str, Any]:
-    req = JobRequest(use_seed_fallback=True, n_logs=200)
+    # SYNTH_DEFAULT_N_LOGS scales the one-click seed fallback (e.g. 100000 for
+    # the mentor-requested large run). Defaults to the small demo count.
+    n_logs = int(os.getenv("SYNTH_DEFAULT_N_LOGS", "200"))
+    req = JobRequest(use_seed_fallback=True, n_logs=n_logs)
     return start_job(req)
 
 

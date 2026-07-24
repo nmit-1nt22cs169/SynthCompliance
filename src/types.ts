@@ -105,6 +105,35 @@ export interface TstrMetrics {
   status?: string;
   model?: string;
   notes?: string;
+  // Transformer scorers (offline cluster-trained via scripts/train_transformers.py,
+  // leakage-safe SOX-train / GDPR-eval pack split). Absent if no checkpoint run.
+  transformer_models?: TransformerModelMetrics[];
+  transformer_best_model?: string;
+  distilbert_rare_recall?: number;
+  distilbert_recall_lift_vs_rule?: number;
+  distilbert_recall_lift_vs_lr?: number;
+  deberta_rare_recall?: number;
+  deberta_recall_lift_vs_rule?: number;
+  deberta_recall_lift_vs_lr?: number;
+  lr_strict_rare_recall?: number;
+  rule_strict_rare_recall?: number;
+}
+
+export interface TransformerModelMetrics {
+  transformer_model: string;
+  transformer_rare_recall: number;
+  transformer_recall_lift_vs_rule: number;
+  transformer_recall_lift_vs_lr: number | null;
+  transformer_status?: string;
+  transformer_train_size?: number;
+  transformer_eval_size?: number;
+  transformer_eval_violation_rate?: number;
+  transformer_train_pack?: string;
+  transformer_eval_pack?: string;
+  transformer_device?: string;
+  transformer_mode?: string;
+  lr_strict_rare_recall?: number;
+  rule_strict_rare_recall?: number;
 }
 
 export interface ValidationReport {
