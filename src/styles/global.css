@@ -1004,6 +1004,13 @@ select:focus-visible {
 .job-log {
   font-size: var(--text-xs);
   color: var(--text-secondary);
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .job-log-line {

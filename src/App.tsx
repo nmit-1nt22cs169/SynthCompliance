@@ -20,7 +20,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Header refreshing={refreshing} runId={report?.run_id} jobActive={jobActive} />
+      <Header refreshing={refreshing} runId={report?.run_id} generatedAt={report?.generated_at} jobActive={jobActive} />
       <TabBar activeTab={activeTab} onChange={setActiveTab} />
 
       {error && activeTab !== 'pipeline' && (

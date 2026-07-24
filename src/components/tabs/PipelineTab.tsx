@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../Badge';
 import { deriveLineChart } from '../../lib/derive';
-import { fetchTaxonomy, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
+import { fetchTaxonomy, getJobStatus, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
 import type { JobConfig, ValidationReport } from '../../types';
 
 const INDUSTRIES = [
@@ -22,6 +22,13 @@ function formatElapsed(ms: number): string {
 
 function formatClock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+const JOB_STORAGE_KEY = 'synthcompliance:lastJob';
+
+interface StoredJob {
+  job_id: string;
+  startedAt: number;
 }
 
 interface PipelineTabProps {
@@ -53,6 +60,8 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   const [startRunId, setStartRunId] = useState<string | null>(null);
   const [, forceTick] = useState(0);
   const lastStageRef = useRef<string | null>(null);
+  const receivedAnyEventRef = useRef(false);
+  const jobLogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setTaxonomyLoading(true);
@@ -88,6 +97,13 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     return () => clearInterval(id);
   }, [phase]);
 
+  useEffect(() => {
+    const el = jobLogRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [jobEvents.length]);
+
   const mixTotal = mix.normal + mix.suspicious + mix.violation + mix.false_positive;
   const mixValid = mixTotal === 100;
 
@@ -104,16 +120,39 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     setMix((prev) => ({ ...prev, [key]: Math.max(0, Math.min(100, value)) }));
   };
 
+  const attachToJob = (jobId: string) => {
+    lastStageRef.current = null;
+    receivedAnyEventRef.current = false;
+    subscribeJobEvents(
+      jobId,
+      (ev) => {
+        receivedAnyEventRef.current = true;
+        lastStageRef.current = ev.stage;
+        setJobEvents((prev) => [...prev, ev]);
+      },
+      () => {
+        setRunning(false);
+        onJobActiveChange?.(false);
+        // No events ever arrived (e.g. the job_id no longer means anything to this backend
+        // process) — nothing meaningful to report, leave phase at idle.
+        if (!receivedAnyEventRef.current) return;
+        setFinishedAt(Date.now());
+        setOutcome(lastStageRef.current === 'failed' ? 'failed' : 'success');
+        onJobComplete?.();
+      }
+    );
+  };
+
   const runPipeline = async () => {
     setError(null);
     setRunning(true);
     onJobActiveChange?.(true);
     setJobEvents([]);
-    lastStageRef.current = null;
-    setStartedAt(Date.now());
     setFinishedAt(null);
     setOutcome(null);
     setStartRunId(report?.run_id ?? null);
+    const start = Date.now();
+    setStartedAt(start);
     const config: JobConfig = {
       packs,
       control_classes: controlClasses,
@@ -128,20 +167,8 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     };
     try {
       const { job_id } = await startJob(config);
-      subscribeJobEvents(
-        job_id,
-        (ev) => {
-          lastStageRef.current = ev.stage;
-          setJobEvents((prev) => [...prev, ev]);
-        },
-        () => {
-          setRunning(false);
-          onJobActiveChange?.(false);
-          setFinishedAt(Date.now());
-          setOutcome(lastStageRef.current === 'failed' ? 'failed' : 'success');
-          onJobComplete?.();
-        }
-      );
+      localStorage.setItem(JOB_STORAGE_KEY, JSON.stringify({ job_id, startedAt: start } as StoredJob));
+      attachToJob(job_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setRunning(false);
@@ -150,6 +177,34 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       setOutcome('failed');
     }
   };
+
+  // Resume watching (or restore the history of) the last job across a page refresh — the
+  // backend SSE stream replays its full event buffer from the start on every new connection,
+  // so re-subscribing naturally rehydrates the whole log, live-continuing if still running.
+  useEffect(() => {
+    const raw = localStorage.getItem(JOB_STORAGE_KEY);
+    if (!raw) return;
+    let stored: StoredJob;
+    try {
+      stored = JSON.parse(raw) as StoredJob;
+    } catch {
+      localStorage.removeItem(JOB_STORAGE_KEY);
+      return;
+    }
+    getJobStatus(stored.job_id)
+      .then((job) => {
+        setStartedAt(stored.startedAt);
+        setStartRunId(null);
+        const active = job.status === 'queued' || job.status === 'running';
+        setRunning(active);
+        if (active) onJobActiveChange?.(true);
+        attachToJob(stored.job_id);
+      })
+      .catch(() => {
+        // Backend no longer knows this job (likely restarted since) — nothing to resume.
+        localStorage.removeItem(JOB_STORAGE_KEY);
+      });
+  }, []);
 
   const lineChart = report ? deriveLineChart(report) : null;
   const latest = jobEvents[jobEvents.length - 1];
@@ -300,8 +355,8 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
                 )}
               </div>
             )}
-            <div className="job-log">
-              {jobEvents.slice(-8).map((ev, i) => (
+            <div className="job-log" ref={jobLogRef}>
+              {jobEvents.map((ev, i) => (
                 <div key={i} className="job-log-line">
                   <span className="job-stage">[{ev.stage}]</span> {ev.message}
                 </div>

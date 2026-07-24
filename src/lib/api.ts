@@ -57,6 +57,12 @@ export async function startJob(config: JobConfig): Promise<{ job_id: string; sta
   return res.json();
 }
 
+export async function getJobStatus(jobId: string): Promise<{ status: string; job_id: string }> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Job not found: ${res.status}`);
+  return res.json();
+}
+
 export function subscribeJobEvents(
   jobId: string,
   onEvent: (ev: JobEvent) => void,
