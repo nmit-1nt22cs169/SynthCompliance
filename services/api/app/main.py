@@ -53,7 +53,6 @@ class JobRequest(BaseModel):
     scenario_mix: dict[str, float] | None = None
     n_logs: int = 200
     industry: str = "financial_services"
-    use_seed_fallback: bool = False
 
 
 class CopilotRequest(BaseModel):
@@ -105,7 +104,6 @@ def start_job(req: JobRequest) -> dict[str, Any]:
                 scenario_mix=req.scenario_mix,
                 n_logs=req.n_logs,
                 industry=req.industry,
-                use_seed_fallback=req.use_seed_fallback,
                 on_event=on_event,
             )
             with _job_lock:
@@ -193,15 +191,6 @@ def export_bundle():
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=synthcompliance_export.zip"},
     )
-
-
-@app.post("/api/seed")
-def load_seed() -> dict[str, Any]:
-    # SYNTH_DEFAULT_N_LOGS scales the one-click seed fallback (e.g. 100000 for
-    # the mentor-requested large run). Defaults to the small demo count.
-    n_logs = int(os.getenv("SYNTH_DEFAULT_N_LOGS", "200"))
-    req = JobRequest(use_seed_fallback=True, n_logs=n_logs)
-    return start_job(req)
 
 
 def create_app() -> FastAPI:

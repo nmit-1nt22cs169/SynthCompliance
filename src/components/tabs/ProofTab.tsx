@@ -23,7 +23,7 @@ export function ProofTab({ report, accent }: ProofTabProps) {
   const bestModel = tstr?.transformer_best_model;
 
   const bars: Bar[] = [
-    { label: 'Rule baseline', value: baseline, color: '#e0a83e' },
+    { label: 'Rule baseline', value: baseline, color: 'var(--amber)' },
     { label: 'Logistic reg.', sublabel: 'synthetic-trained', value: trained, color: accent },
   ];
   for (const m of transformerModels) {
@@ -38,6 +38,8 @@ export function ProofTab({ report, accent }: ProofTabProps) {
   }
 
   const maxRecall = Math.max(...bars.map((b) => b.value), 0.01);
+  const bestValue = Math.max(...bars.map((b) => b.value));
+  const headlineLift = bestValue - baseline;
   const chartW = 520 + Math.max(0, bars.length - 2) * 120;
   const chartH = 240;
   const padL = 48;
@@ -46,11 +48,6 @@ export function ProofTab({ report, accent }: ProofTabProps) {
   const step = 120;
   const barW = 80;
   const plotH = chartH - padB - padT;
-
-  const bars = [
-    { label: 'Baseline', value: baseline, color: 'var(--amber)' },
-    { label: 'Synthetic-trained', value: trained, color: accent }
-  ];
 
   return (
     <div className="proof-grid">
