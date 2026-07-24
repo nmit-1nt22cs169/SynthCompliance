@@ -583,39 +583,290 @@ select:focus-visible {
   color: var(--text-primary);
 }
 
-/* ---------- Data tab ---------- */
-.data-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 18px;
+/* ---------- Data tab: sortable/searchable tables ---------- */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
 }
 
-.data-panel {
-  padding: 20px 22px;
-  min-width: 0;
-  border-radius: var(--radius-2xl);
+.table-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
 }
 
-.json-block {
-  margin: 0;
-  font-family: var(--mono);
+.table-count {
   font-size: var(--text-2xs);
-  background: rgba(0, 0, 0, 0.035);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.data-table-wrap {
+  overflow-x: auto;
+  max-height: 420px;
+  overflow-y: auto;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: var(--radius-md);
-  padding: 14px;
-  max-height: 420px;
-  overflow: auto;
-  white-space: pre;
 }
-.json-audit {
-  color: var(--green-text);
+
+.data-table {
+  width: 100%;
+  min-width: 720px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--text-2xs);
 }
-.json-violations {
-  color: var(--red-text);
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--surface-hole);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 10px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
-.json-qa {
-  color: var(--accent-deep);
+.data-table th.sorted {
+  color: var(--accent);
+}
+.sort-arrow {
+  font-size: 9px;
+}
+
+.data-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tr.highlighted td {
+  background: rgba(124, 140, 255, 0.16);
+  color: var(--text-primary);
+}
+
+.data-table td.mono {
+  font-family: var(--mono);
+}
+
+.data-table td.table-truncate {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-more {
+  display: inline-block;
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.activity-bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 36px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 5px 0;
+}
+
+.activity-bar-label {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-bar-track {
+  height: 8px;
+  border-radius: var(--radius-xs);
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.activity-bar-fill {
+  height: 100%;
+  background: var(--green-dark);
+  border-radius: var(--radius-xs);
+}
+
+.activity-bar-count {
+  font-size: var(--text-2xs);
+  font-family: var(--mono);
+  color: var(--text-tertiary);
+  text-align: right;
+}
+
+/* ---------- Matrices (violation type x severity, role x sensitivity) ---------- */
+.matrix-wrap {
+  overflow-x: auto;
+}
+
+.matrix-table th,
+.matrix-table td {
+  text-align: center;
+}
+.matrix-table th:first-child,
+.matrix-table td:first-child {
+  text-align: left;
+  text-transform: capitalize;
+}
+
+.matrix-cell {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ---------- Severity pills (Overview) ---------- */
+.severity-pill-row {
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.severity-pill-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.severity-pill-count {
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--text-primary);
+}
+
+/* ---------- Hourly activity heat row (Overview) ---------- */
+.hour-heat-row {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+}
+
+.hour-heat-cell {
+  height: 32px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
+}
+
+.hour-heat-label {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+}
+
+.weight-bar-list {
+  margin-top: var(--space-2);
+}
+
+.repaired-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.repaired-link {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
+.repaired-link:hover {
+  background: rgba(124, 140, 255, 0.14);
+}
+
+/* ---------- Pipeline Gantt ---------- */
+.gantt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.gantt-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 64px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gantt-label {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-track {
+  height: 14px;
+  border-radius: var(--radius-xs);
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.gantt-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-xs);
+  transition: width 0.3s ease;
+}
+
+.gantt-bar-running {
+  animation: gantt-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes gantt-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.gantt-value {
+  font-size: var(--text-2xs);
+  font-family: var(--mono);
+  color: var(--text-tertiary);
+  text-align: right;
+}
+
+.pipeline-row-running {
+  animation: pipeline-row-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pipeline-row-pulse {
+  0%, 100% { background: transparent; }
+  50% { background: rgba(224, 168, 62, 0.1); }
 }
 
 /* ---------- Copilot tab ---------- */

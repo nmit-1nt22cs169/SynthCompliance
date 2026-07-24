@@ -1,4 +1,5 @@
-import type { ValidationReport, ValidatorStatus } from '../types';
+import { formatDuration } from './format';
+import type { AuditLog, ValidationReport, ValidatorStatus, Violation } from '../types';
 
 export interface Kpi {
   label: string;
@@ -187,11 +188,154 @@ export function deriveLineChart(report: ValidationReport): LineChart {
       x: +x.toFixed(1),
       y: +y.toFixed(1),
       shortName: STAGE_SHORT[report.pipeline_stages[i].stage] || report.pipeline_stages[i].stage,
-      durationLabel: `${v}ms`,
+      durationLabel: formatDuration(v),
       labelY: +(y - 12).toFixed(1)
     };
   });
   const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
   const areaPath = `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z`;
   return { w, h, linePath, areaPath, points, axisY: h - 12 };
+}
+
+export interface GanttStage {
+  stage: string;
+  status: string;
+  durationMs: number;
+  pct: number;
+}
+
+export function deriveGantt(report: ValidationReport): GanttStage[] {
+  const total = report.pipeline_stages.reduce((sum, s) => sum + s.duration_ms, 0) || 1;
+  return report.pipeline_stages.map((s) => ({
+    stage: STAGE_SHORT[s.stage] || s.stage,
+    status: s.status,
+    durationMs: s.duration_ms,
+    pct: Math.max(1, Math.round((s.duration_ms / total) * 100))
+  }));
+}
+
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export function deriveSeverityCounts(violations: Violation[]): SeverityCounts {
+  const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const v of violations) {
+    if (v.severity in counts) counts[v.severity as keyof SeverityCounts] += 1;
+  }
+  return counts;
+}
+
+export interface WeightBar {
+  label: string;
+  weight: number;
+  pct: number;
+}
+
+export function deriveWeightBars(weights: Record<string, number> | undefined): WeightBar[] {
+  if (!weights || Object.keys(weights).length === 0) return [];
+  const entries = Object.entries(weights);
+  const max = Math.max(...entries.map(([, w]) => w), 1);
+  return entries
+    .map(([label, weight]) => ({ label: label.replace(/_/g, ' '), weight, pct: Math.max(2, Math.round((weight / max) * 100)) }))
+    .sort((a, b) => b.weight - a.weight);
+}
+
+export interface HourBucket {
+  hour: number;
+  count: number;
+  pct: number;
+}
+
+export function deriveHourlyActivity(auditLogs: AuditLog[]): HourBucket[] {
+  const counts = new Array(24).fill(0) as number[];
+  for (const log of auditLogs) {
+    const hour = new Date(log.timestamp).getUTCHours();
+    if (!Number.isNaN(hour)) counts[hour] += 1;
+  }
+  const max = Math.max(...counts, 1);
+  return counts.map((count, hour) => ({ hour, count, pct: Math.round((count / max) * 100) }));
+}
+
+export interface RiskCell {
+  role: string;
+  sensitivity: string;
+  rate: number;
+  total: number;
+}
+
+export interface RiskMatrix {
+  roles: string[];
+  sensitivities: string[];
+  cells: RiskCell[];
+}
+
+const SENSITIVITY_LEVELS = ['low', 'medium', 'high', 'critical'];
+
+export function deriveRiskMatrix(auditLogs: AuditLog[], violations: Violation[]): RiskMatrix {
+  const violationLogIds = new Set(violations.map((v) => v.log_id));
+  const roles = Array.from(new Set(auditLogs.map((l) => l.role))).sort();
+  const cells: RiskCell[] = [];
+  for (const role of roles) {
+    for (const sensitivity of SENSITIVITY_LEVELS) {
+      const rows = auditLogs.filter((l) => l.role === role && l.sensitivity === sensitivity);
+      const violated = rows.filter((l) => violationLogIds.has(l.log_id)).length;
+      cells.push({
+        role,
+        sensitivity,
+        rate: rows.length ? Math.round((violated / rows.length) * 100) : 0,
+        total: rows.length
+      });
+    }
+  }
+  return { roles, sensitivities: SENSITIVITY_LEVELS, cells };
+}
+
+export interface TypeSeverityCell {
+  type: string;
+  severity: string;
+  count: number;
+}
+
+export interface ViolationMatrix {
+  types: string[];
+  severities: string[];
+  cells: TypeSeverityCell[];
+  max: number;
+}
+
+export function deriveViolationMatrix(violations: Violation[]): ViolationMatrix {
+  const types = Array.from(new Set(violations.map((v) => v.violation_type))).sort();
+  const cells: TypeSeverityCell[] = [];
+  let max = 0;
+  for (const type of types) {
+    for (const severity of SENSITIVITY_LEVELS) {
+      const count = violations.filter((v) => v.violation_type === type && v.severity === severity).length;
+      max = Math.max(max, count);
+      cells.push({ type, severity, count });
+    }
+  }
+  return { types, severities: SENSITIVITY_LEVELS, cells, max };
+}
+
+export interface ActivityBar {
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export function deriveActivityBars(auditLogs: AuditLog[], field: 'system' | 'role'): ActivityBar[] {
+  const counts = new Map<string, number>();
+  for (const log of auditLogs) {
+    const key = log[field];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const max = Math.max(...counts.values(), 1);
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count, pct: Math.round((count / max) * 100) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
 }

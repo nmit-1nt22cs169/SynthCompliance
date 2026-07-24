@@ -28,6 +28,12 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
     { label: 'Rule baseline', value: baseline, color: 'var(--amber)' },
     { label: 'Logistic reg.', sublabel: 'synthetic-trained', value: trained, color: accent },
   ];
+  if (tstr?.rule_strict_rare_recall != null) {
+    bars.push({ label: 'Rule (strict)', sublabel: 'stricter rare-class def.', value: tstr.rule_strict_rare_recall, color: '#c98a2e' });
+  }
+  if (tstr?.lr_strict_rare_recall != null) {
+    bars.push({ label: 'LR (strict)', sublabel: 'stricter rare-class def.', value: tstr.lr_strict_rare_recall, color: '#5f5fd6' });
+  }
   for (const m of transformerModels) {
     const short = m.transformer_model.replace('microsoft/', '').replace('-base-uncased', '').replace('-v3-base', '-v3');
     bars.push({
@@ -45,11 +51,14 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
   const chartW = 520 + Math.max(0, bars.length - 2) * 120;
   const chartH = 240;
   const padL = 48;
-  const padB = 48;
+  const padB = 52;
   const padT = 24;
   const step = 120;
   const barW = 80;
   const plotH = chartH - padB - padT;
+  const plotBottom = padT + plotH;
+  const labelY = plotBottom + 20;
+  const sublabelY = plotBottom + 36;
 
   return (
     <div>
@@ -77,11 +86,11 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
                   <text x={x + barW / 2} y={y - 8} textAnchor="middle" fontSize={13} fill="var(--text-primary)" fontWeight="600">
                     {(b.value * 100).toFixed(0)}%
                   </text>
-                  <text x={x + barW / 2} y={chartH - 10} textAnchor="middle" fontSize={12} fill="var(--text-secondary)">
+                  <text x={x + barW / 2} y={labelY} textAnchor="middle" fontSize={12} fill="var(--text-secondary)">
                     {b.label}
                   </text>
                   {b.sublabel && (
-                    <text x={x + barW / 2} y={chartH - 5} textAnchor="middle" fontSize={10} fill="#9a9aa0">
+                    <text x={x + barW / 2} y={sublabelY} textAnchor="middle" fontSize={10} fill="#9a9aa0">
                       {b.sublabel}
                     </text>
                   )}

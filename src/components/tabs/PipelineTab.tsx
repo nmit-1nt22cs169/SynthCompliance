@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../Badge';
-import { deriveLineChart } from '../../lib/derive';
+import { deriveGantt, deriveLineChart } from '../../lib/derive';
 import { fetchTaxonomy, getJobStatus, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
+import { formatDuration } from '../../lib/format';
 import type { JobConfig, ValidationReport } from '../../types';
 
 const INDUSTRIES = [
@@ -207,6 +208,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   }, []);
 
   const lineChart = report ? deriveLineChart(report) : null;
+  const gantt = report ? deriveGantt(report) : null;
   const latest = jobEvents[jobEvents.length - 1];
 
   return (
@@ -387,15 +389,35 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
             </svg>
           </div>
 
+          {gantt && (
+            <div className="glass-panel tab-panel panel-pad">
+              <div className="panel-title">Stage Duration Breakdown</div>
+              <div className="gantt">
+                {gantt.map((g) => (
+                  <div className="gantt-row" key={g.stage}>
+                    <span className="gantt-label">{g.stage}</span>
+                    <div className="gantt-track">
+                      <div
+                        className={`gantt-bar${g.status === 'running' ? ' gantt-bar-running' : ''}`}
+                        style={{ width: `${g.pct}%` }}
+                      />
+                    </div>
+                    <span className="gantt-value">{formatDuration(g.durationMs)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="glass-panel panel-pad">
             <div className="panel-title" style={{ marginBottom: 16 }}>
               Pipeline Flow
             </div>
             {report.pipeline_stages.map((s) => (
-              <div className="pipeline-row" key={s.stage}>
+              <div className={`pipeline-row${s.status === 'running' ? ' pipeline-row-running' : ''}`} key={s.stage}>
                 <span className="pipeline-stage-name">{s.stage}</span>
                 <div className="pipeline-row-right">
-                  <span className="pipeline-duration">{s.duration_ms}ms</span>
+                  <span className="pipeline-duration">{formatDuration(s.duration_ms)}</span>
                   <Badge status={s.status} />
                 </div>
               </div>

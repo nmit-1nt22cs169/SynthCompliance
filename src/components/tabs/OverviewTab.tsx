@@ -1,32 +1,54 @@
+import { useMemo } from 'react';
 import { Breadcrumb } from '../Breadcrumb';
-import { Badge } from '../Badge';
+import { Badge, SeverityBadge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
-import { deriveCoverage, deriveKpis, deriveValidators } from '../../lib/derive';
-import type { ValidationReport } from '../../types';
+import {
+  deriveCoverage,
+  deriveHourlyActivity,
+  deriveKpis,
+  deriveRiskMatrix,
+  deriveSeverityCounts,
+  deriveValidators,
+  deriveWeightBars
+} from '../../lib/derive';
+import type { AuditLog, DataTable, ValidationReport, Violation } from '../../types';
 
 interface OverviewTabProps {
   report: ValidationReport;
+  auditLogs: AuditLog[];
+  violations: Violation[];
   accent: string;
   jobActive?: boolean;
+  onJump?: (table: DataTable, id: string) => void;
 }
 
-export function OverviewTab({ report, accent, jobActive }: OverviewTabProps) {
+function riskColor(rate: number): string {
+  if (rate === 0) return 'transparent';
+  const t = Math.min(rate, 100) / 100;
+  return `rgba(224, 85, 90, ${0.1 + t * 0.6})`;
+}
+
+export function OverviewTab({ report, auditLogs, violations, accent, jobActive, onJump }: OverviewTabProps) {
   const kpis = deriveKpis(report, accent);
   const { coverage, total, donutGradient } = deriveCoverage(report, accent);
   const validators = deriveValidators(report);
+  const severityCounts = useMemo(() => deriveSeverityCounts(violations), [violations]);
+  const weightBars = deriveWeightBars(report.feedback_loop?.next_violation_type_weights);
+  const hourly = useMemo(() => deriveHourlyActivity(auditLogs), [auditLogs]);
+  const riskMatrix = useMemo(() => deriveRiskMatrix(auditLogs, violations), [auditLogs, violations]);
 
   const violationRatio = total > 0
     ? ((report.validators.scenario_coverage.violation / total) * 100).toFixed(1)
     : '0.0';
   const recallLift = report.tstr_metrics ? ((report.tstr_metrics.recall_lift ?? 0) * 100).toFixed(0) : '0';
   const goldenScore = report.golden_set_fidelity?.label_fidelity_score?.toFixed(1) ?? '0.0';
-  const repairedRows = report.repair_log?.repaired_log_ids?.length ?? 0;
+  const repairedRows = report.repair_log?.repaired_log_ids ?? [];
 
   const feedback = report.feedback_loop;
   const juryHighlights = [
     { label: 'Rare-class recall lift', value: `${recallLift}%`, detail: 'TSTR proof for judges' },
     { label: 'Golden fidelity', value: `${goldenScore}%`, detail: 'Taxonomy match against seeded golden records' },
-    { label: 'Repaired rows', value: `${repairedRows}`, detail: 'Rows corrected in the repair loop' },
+    { label: 'Repaired rows', value: `${repairedRows.length}`, detail: 'Rows corrected in the repair loop' },
     { label: 'Violation ratio', value: `${violationRatio}%`, detail: 'Oversampled compliance edge cases' }
   ];
 
@@ -63,6 +85,48 @@ export function OverviewTab({ report, accent, jobActive }: OverviewTabProps) {
 
       <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 12 }}>
+          Violation Severity Breakdown
+        </div>
+        <div className="severity-pill-row">
+          <div className="severity-pill-item">
+            <SeverityBadge severity="critical" />
+            <span className="severity-pill-count">{severityCounts.critical}</span>
+          </div>
+          <div className="severity-pill-item">
+            <SeverityBadge severity="high" />
+            <span className="severity-pill-count">{severityCounts.high}</span>
+          </div>
+          <div className="severity-pill-item">
+            <SeverityBadge severity="medium" />
+            <span className="severity-pill-count">{severityCounts.medium}</span>
+          </div>
+          <div className="severity-pill-item">
+            <SeverityBadge severity="low" />
+            <span className="severity-pill-count">{severityCounts.low}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-panel tab-panel panel-pad">
+        <div className="panel-title" style={{ marginBottom: 12 }}>
+          Activity by Hour (UTC)
+        </div>
+        <div className="hour-heat-row">
+          {hourly.map((h) => (
+            <div
+              key={h.hour}
+              className="hour-heat-cell"
+              style={{ background: h.count > 0 ? `rgba(124, 140, 255, ${0.15 + (h.pct / 100) * 0.65})` : 'rgba(0,0,0,0.03)' }}
+              title={`${h.hour}:00 — ${h.count} logs`}
+            >
+              <span className="hour-heat-label">{h.hour}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass-panel tab-panel panel-pad">
+        <div className="panel-title" style={{ marginBottom: 12 }}>
           Adaptive Feedback Loop
         </div>
         <div className="validation-detail" style={{ marginBottom: 12 }}>
@@ -80,6 +144,22 @@ export function OverviewTab({ report, accent, jobActive }: OverviewTabProps) {
             <div className="validation-detail">Tracks whether the latest run improved recall lift versus the previous run.</div>
           </div>
         </div>
+        {weightBars.length > 0 && (
+          <div className="weight-bar-list">
+            <div className="wizard-label" style={{ marginBottom: 8, marginTop: 8 }}>
+              Next-run violation-type weights
+            </div>
+            {weightBars.map((w) => (
+              <div className="activity-bar-row" key={w.label}>
+                <span className="activity-bar-label">{w.label}</span>
+                <div className="activity-bar-track">
+                  <div className="activity-bar-fill" style={{ width: `${w.pct}%`, background: 'var(--amber)' }} />
+                </div>
+                <span className="activity-bar-count">{w.weight.toFixed(2)}x</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="glass-panel tab-panel panel-pad">
@@ -95,7 +175,49 @@ export function OverviewTab({ report, accent, jobActive }: OverviewTabProps) {
             </div>
           ))}
         </div>
+        {repairedRows.length > 0 && onJump && (
+          <div className="repaired-links">
+            {repairedRows.slice(0, 12).map((id) => (
+              <button key={id} type="button" className="link-btn repaired-link" onClick={() => onJump('auditLogs', id)}>
+                {id}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {riskMatrix.roles.length > 0 && (
+        <div className="glass-panel tab-panel panel-pad">
+          <div className="panel-title">Risk Matrix — Role × Sensitivity (violation rate %)</div>
+          <div className="matrix-wrap">
+            <table className="data-table matrix-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  {riskMatrix.sensitivities.map((s) => (
+                    <th key={s}>{s}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {riskMatrix.roles.map((role) => (
+                  <tr key={role}>
+                    <td>{role.replace(/_/g, ' ')}</td>
+                    {riskMatrix.sensitivities.map((sensitivity) => {
+                      const cell = riskMatrix.cells.find((c) => c.role === role && c.sensitivity === sensitivity);
+                      return (
+                        <td key={sensitivity} className="matrix-cell" style={{ background: riskColor(cell?.rate ?? 0) }}>
+                          {cell && cell.total > 0 ? `${cell.rate}%` : ''}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="overview-row-2">
         <div className="glass-panel donut-panel panel-pad">

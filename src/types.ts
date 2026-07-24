@@ -178,6 +178,8 @@ export interface DashboardData {
 
 export type TabId = 'overview' | 'pipeline' | 'validation' | 'data' | 'copilot' | 'proof';
 
+export type DataTable = 'auditLogs' | 'violations' | 'qaPairs';
+
 export interface JobConfig {
   packs: string[];
   control_classes: string[];

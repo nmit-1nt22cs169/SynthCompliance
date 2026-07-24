@@ -8,15 +8,26 @@ import { DataTab } from './components/tabs/DataTab';
 import { CopilotTab } from './components/tabs/CopilotTab';
 import { ProofTab } from './components/tabs/ProofTab';
 import { useDashboardData } from './hooks/useDashboardData';
-import type { TabId } from './types';
+import type { DataTable, TabId } from './types';
 
 const ACCENT = '#7c8cff';
+
+export interface JumpTarget {
+  table: DataTable;
+  id: string;
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [jobActive, setJobActive] = useState(false);
+  const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
   const { data, refreshing, error, forceRefresh } = useDashboardData(jobActive);
   const report = data?.validationReport ?? null;
+
+  const jumpToRow = (table: DataTable, id: string) => {
+    setJumpTarget({ table, id });
+    setActiveTab('data');
+  };
 
   return (
     <div className="app-shell">
@@ -52,16 +63,30 @@ function App() {
       {data && (
         <>
           <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
-            <OverviewTab report={data.validationReport} accent={ACCENT} jobActive={jobActive} />
+            <OverviewTab
+              report={data.validationReport}
+              auditLogs={data.auditLogs}
+              violations={data.violations}
+              accent={ACCENT}
+              jobActive={jobActive}
+              onJump={jumpToRow}
+            />
           </div>
           <div style={{ display: activeTab === 'validation' ? 'block' : 'none' }}>
-            <ValidationTab report={data.validationReport} jobActive={jobActive} />
+            <ValidationTab report={data.validationReport} violations={data.violations} jobActive={jobActive} onJump={jumpToRow} />
           </div>
           <div style={{ display: activeTab === 'data' ? 'block' : 'none' }}>
-            <DataTab auditLogs={data.auditLogs} violations={data.violations} qaPairs={data.qaPairs} jobActive={jobActive} />
+            <DataTab
+              auditLogs={data.auditLogs}
+              violations={data.violations}
+              qaPairs={data.qaPairs}
+              jobActive={jobActive}
+              jumpTarget={jumpTarget}
+              onJumpConsumed={() => setJumpTarget(null)}
+            />
           </div>
           <div style={{ display: activeTab === 'copilot' ? 'block' : 'none' }}>
-            <CopilotTab violations={data.violations} auditLogs={data.auditLogs} jobActive={jobActive} />
+            <CopilotTab violations={data.violations} auditLogs={data.auditLogs} jobActive={jobActive} onJump={jumpToRow} />
           </div>
           <div style={{ display: activeTab === 'proof' ? 'block' : 'none' }}>
             <ProofTab report={data.validationReport} accent={ACCENT} jobActive={jobActive} />

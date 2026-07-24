@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { SeverityBadge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
 import { queryCopilot } from '../../lib/api';
-import type { AuditLog, Violation } from '../../types';
+import type { AuditLog, DataTable, Violation } from '../../types';
 
 interface CopilotTabProps {
   violations: Violation[];
   auditLogs: AuditLog[];
   jobActive?: boolean;
+  onJump?: (table: DataTable, id: string) => void;
 }
 
-export function CopilotTab({ violations: _violations, jobActive }: CopilotTabProps) {
+export function CopilotTab({ violations: _violations, jobActive, onJump }: CopilotTabProps) {
   const [queryText, setQueryText] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,7 +94,16 @@ export function CopilotTab({ violations: _violations, jobActive }: CopilotTabPro
                 <div className="copilot-result-head">
                   <span className="copilot-control-id">{r.control_id}</span>
                   <SeverityBadge severity={r.severity} />
-                  <span className="copilot-evidence">evidence: {r.log_id}</span>
+                  <span className="copilot-evidence">
+                    evidence:{' '}
+                    {onJump ? (
+                      <button type="button" className="link-btn" onClick={() => onJump('auditLogs', r.log_id)}>
+                        {r.log_id}
+                      </button>
+                    ) : (
+                      r.log_id
+                    )}
+                  </span>
                 </div>
                 <div className="copilot-explanation">{r.explanation}</div>
               </div>
@@ -102,7 +112,21 @@ export function CopilotTab({ violations: _violations, jobActive }: CopilotTabPro
             <div className="copilot-empty">No matching violations in the live corpus for that query.</div>
           )}
           {evidenceIds.length > 0 && (
-            <div className="copilot-evidence-list">evidence_log_ids: {evidenceIds.join(', ')}</div>
+            <div className="copilot-evidence-list">
+              evidence_log_ids:{' '}
+              {evidenceIds.map((id, i) => (
+                <span key={id}>
+                  {i > 0 && ', '}
+                  {onJump ? (
+                    <button type="button" className="link-btn" onClick={() => onJump('auditLogs', id)}>
+                      {id}
+                    </button>
+                  ) : (
+                    id
+                  )}
+                </span>
+              ))}
+            </div>
           )}
         </div>
       )}
