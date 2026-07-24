@@ -22,7 +22,7 @@ export function deriveKpis(report: ValidationReport, accent: string): Kpi[] {
   return defs.map((k) => {
     const ratio = k.actual / k.target;
     const barHeight = Math.round(Math.min(ratio, 1.15) * 100);
-    const barColor = ratio >= 1 ? '#1fa971' : ratio >= 0.9 ? accent : '#e0a83e';
+    const barColor = ratio >= 1 ? 'var(--green-dark)' : ratio >= 0.9 ? accent : 'var(--amber)';
     return { ...k, barHeight, barColor };
   });
 }
@@ -37,9 +37,9 @@ export interface CoverageSlice {
 
 export function deriveCoverage(report: ValidationReport, accent: string) {
   const covColors: Record<string, string> = {
-    normal: '#1fa971',
-    suspicious: '#e0a83e',
-    violation: '#e0555a',
+    normal: 'var(--green-dark)',
+    suspicious: 'var(--amber)',
+    violation: 'var(--red)',
     false_positive: accent
   };
   const entries = Object.entries(report.validators.scenario_coverage) as [string, number][];

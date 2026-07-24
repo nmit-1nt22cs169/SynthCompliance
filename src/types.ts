@@ -160,5 +160,4 @@ export interface JobConfig {
   };
   n_logs: number;
   industry: string;
-  use_seed_fallback: boolean;
 }

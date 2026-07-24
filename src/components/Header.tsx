@@ -7,7 +7,7 @@ interface HeaderProps {
 export function Header({ refreshing, runId, jobActive }: HeaderProps) {
   return (
     <div className="header-bar glass-panel">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div className="header-titles">
         <div className="header-title">SynthCompliance Dashboard</div>
         <div className="header-subtitle">
           {jobActive

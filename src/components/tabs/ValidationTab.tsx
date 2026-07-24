@@ -25,7 +25,7 @@ export function ValidationTab({ report }: ValidationTabProps) {
         ))}
       </div>
 
-      <div className="glass-panel" style={{ padding: '24px 28px' }}>
+      <div className="glass-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 16 }}>
           Flagged Rows
         </div>

@@ -441,47 +441,10 @@ class PipelineOrchestrator:
         scenario_mix: dict[str, float] | None = None,
         n_logs: int = 200,
         industry: str = "financial_services",
-        use_seed_fallback: bool = False,
         on_event: EventCb | None = None,
     ) -> dict[str, Any]:
         run_id = f"run_{datetime.now(timezone.utc).strftime('%Y_%m_%d_%H%M')}"
         job_id = f"job_{uuid.uuid4().hex[:10]}"
-
-        if use_seed_fallback:
-            _emit(on_event, {"stage": "seed", "message": "Loading demo seed dataset"})
-            seed_dir = Path(__file__).resolve().parents[3] / "data" / "seeds"
-            # copy via regenerate small seed if missing handled by caller
-            from synthcompliance_generators.io_atomic import write_json, write_jsonl
-            import json
-
-            for name in ("audit_logs.jsonl", "violations.jsonl", "qa_pairs.jsonl", "validation_report.json"):
-                src = seed_dir / name
-                if not src.exists():
-                    raise FileNotFoundError(f"Seed missing: {src}")
-            # re-write into out_dir
-            def load_jsonl(p):
-                return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
-
-            audit_logs = load_jsonl(seed_dir / "audit_logs.jsonl")
-            violations = load_jsonl(seed_dir / "violations.jsonl")
-            qa_pairs = load_jsonl(seed_dir / "qa_pairs.jsonl")
-            report = json.loads((seed_dir / "validation_report.json").read_text(encoding="utf-8"))
-            manifest_path = seed_dir / "dataset_manifest.json"
-            manifest = (
-                json.loads(manifest_path.read_text(encoding="utf-8"))
-                if manifest_path.exists()
-                else None
-            )
-            write_dataset_bundle(
-                self.out_dir,
-                audit_logs=audit_logs,
-                violations=violations,
-                qa_pairs=qa_pairs,
-                validation_report=report,
-                dataset_manifest=manifest,
-            )
-            _emit(on_event, {"stage": "complete", "message": "Seed dataset loaded", "run_id": run_id})
-            return {"run_id": run_id, "job_id": job_id, "report": report, "mode": "seed"}
 
         previous_feedback = None
         feedback_state_path = self.out_dir / "feedback_state.json"

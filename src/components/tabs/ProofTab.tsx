@@ -21,7 +21,7 @@ export function ProofTab({ report, accent }: ProofTabProps) {
   const plotH = chartH - padB - padT;
 
   const bars = [
-    { label: 'Baseline', value: baseline, color: '#e0a83e' },
+    { label: 'Baseline', value: baseline, color: 'var(--amber)' },
     { label: 'Synthetic-trained', value: trained, color: accent }
   ];
 
@@ -41,10 +41,10 @@ export function ProofTab({ report, accent }: ProofTabProps) {
             return (
               <g key={b.label}>
                 <rect x={x} y={y} width={barW} height={h} rx={8} fill={b.color} opacity={0.9} />
-                <text x={x + barW / 2} y={y - 8} textAnchor="middle" fontSize={13} fill="#1d1d1f" fontWeight="600">
+                <text x={x + barW / 2} y={y - 8} textAnchor="middle" fontSize={13} fill="var(--text-primary)" fontWeight="600">
                   {(b.value * 100).toFixed(0)}%
                 </text>
-                <text x={x + barW / 2} y={chartH - 10} textAnchor="middle" fontSize={12} fill="#6e6e73">
+                <text x={x + barW / 2} y={chartH - 10} textAnchor="middle" fontSize={12} fill="var(--text-secondary)">
                   {b.label}
                 </text>
               </g>

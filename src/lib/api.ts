@@ -47,20 +47,13 @@ export async function startJob(config: JobConfig): Promise<{ job_id: string; sta
       control_classes: config.control_classes.length ? config.control_classes : null,
       scenario_mix: config.scenario_mix,
       n_logs: config.n_logs,
-      industry: config.industry,
-      use_seed_fallback: config.use_seed_fallback
+      industry: config.industry
     })
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || 'Failed to start job');
   }
-  return res.json();
-}
-
-export async function loadSeedDataset(): Promise<{ job_id: string; status: string }> {
-  const res = await fetch(`${API_BASE}/api/seed`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to load seed dataset');
   return res.json();
 }
 

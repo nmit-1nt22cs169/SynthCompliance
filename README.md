@@ -24,8 +24,6 @@ Open http://localhost:5173 — see **[docs/DEMO.md](./docs/DEMO.md)** for the fu
 npm run dev:mock1 && npm run dev
 ```
 
-Or load the pre-built seed: **Pipeline → Load 200-record Seed**.
-
 ## Architecture
 
 | Layer | Path |
@@ -36,7 +34,6 @@ Or load the pre-built seed: **Pipeline → Load 200-record Seed**.
 | Generators + Nemotron provider | `packages/generators/` |
 | 5 validators + TSTR + golden fidelity | `packages/validators/` |
 | SOX+GDPR taxonomy + golden set | `packages/taxonomy/` |
-| 200-record fallback | `data/seeds/` |
 
 ## Output contract
 
@@ -55,7 +52,6 @@ See **[DATA_CONTRACT.md](./DATA_CONTRACT.md)** for field-level specs.
 
 ```bash
 npm run dev:api      # FastAPI on :8000
-npm run seed         # Regenerate data/seeds/ (200 records)
 npm run golden       # Regenerate packages/taxonomy/golden/
 npm run build        # Production build
 npm run lint         # oxlint

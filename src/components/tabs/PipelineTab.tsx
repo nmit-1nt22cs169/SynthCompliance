@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '../Badge';
 import { deriveLineChart } from '../../lib/derive';
-import { fetchTaxonomy, loadSeedDataset, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
+import { fetchTaxonomy, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
 import type { JobConfig, ValidationReport } from '../../types';
 
 const INDUSTRIES = [
@@ -72,7 +72,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     setMix((prev) => ({ ...prev, [key]: Math.max(0, Math.min(100, value)) }));
   };
 
-  const runPipeline = async (useSeed = false) => {
+  const runPipeline = async () => {
     setError(null);
     setRunning(true);
     onJobActiveChange?.(true);
@@ -87,11 +87,10 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         false_positive: mix.false_positive / 100
       },
       n_logs: nLogs,
-      industry,
-      use_seed_fallback: useSeed
+      industry
     };
     try {
-      const { job_id } = useSeed ? await loadSeedDataset() : await startJob(config);
+      const { job_id } = await startJob(config);
       subscribeJobEvents(
         job_id,
         (ev) => setJobEvents((prev) => [...prev, ev]),
@@ -204,6 +203,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
                 <span className="slider-name">{key.replace('_', ' ')}</span>
                 <input
                   type="range"
+                  className="slider-input"
                   min={0}
                   max={100}
                   value={mix[key]}
@@ -217,11 +217,8 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         </div>
 
         <div className="wizard-actions">
-          <button type="button" className="copilot-button" disabled={running || !mixValid || packs.length === 0} onClick={() => runPipeline(false)}>
+          <button type="button" className="copilot-button" disabled={running || !mixValid || packs.length === 0} onClick={() => runPipeline()}>
             {running ? 'Running…' : 'Run Pipeline'}
-          </button>
-          <button type="button" className="wizard-secondary" disabled={running} onClick={() => runPipeline(true)}>
-            Load 200-record Seed
           </button>
         </div>
 
@@ -256,18 +253,18 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
 
       {lineChart && report && (
         <>
-          <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+          <div className="glass-panel tab-panel panel-pad">
             <div className="panel-title">Stage Duration Trend</div>
             <svg viewBox={`0 0 ${lineChart.w} ${lineChart.h}`} style={{ width: '100%', height: 200, overflow: 'visible' }}>
               <path d={lineChart.areaPath} fill={accent} opacity={0.14} />
               <path d={lineChart.linePath} fill="none" stroke={accent} strokeWidth={2.5} />
               {lineChart.points.map((p, i) => (
                 <g key={i}>
-                  <circle cx={p.x} cy={p.y} r={4} fill={accent} stroke="#f4f5f8" strokeWidth={2} />
-                  <text x={p.x} y={p.labelY} fontSize={11} fill="#8e8e93" textAnchor="middle">
+                  <circle cx={p.x} cy={p.y} r={4} fill={accent} stroke="var(--surface-hole)" strokeWidth={2} />
+                  <text x={p.x} y={p.labelY} fontSize={11} fill="var(--text-tertiary)" textAnchor="middle">
                     {p.durationLabel}
                   </text>
-                  <text x={p.x} y={lineChart.axisY} fontSize={11} fill="#6e6e73" textAnchor="middle">
+                  <text x={p.x} y={lineChart.axisY} fontSize={11} fill="var(--text-secondary)" textAnchor="middle">
                     {p.shortName}
                   </text>
                 </g>
@@ -275,7 +272,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
             </svg>
           </div>
 
-          <div className="glass-panel" style={{ padding: '24px 28px' }}>
+          <div className="glass-panel panel-pad">
             <div className="panel-title" style={{ marginBottom: 16 }}>
               Pipeline Flow
             </div>

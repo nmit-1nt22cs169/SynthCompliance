@@ -32,7 +32,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
     <div>
       <Breadcrumb stages={report.pipeline_stages} />
 
-      <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+      <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title">Dataset Targets — Actual vs Target</div>
         <div className="kpi-grid">
           {kpis.map((k) => (
@@ -58,7 +58,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
         </div>
       </div>
 
-      <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+      <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 12 }}>
           Adaptive Feedback Loop
         </div>
@@ -79,7 +79,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
         </div>
       </div>
 
-      <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+      <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 12 }}>
           Jury Highlights
         </div>
@@ -95,7 +95,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
       </div>
 
       <div className="overview-row-2">
-        <div className="glass-panel donut-panel" style={{ padding: '24px 28px' }}>
+        <div className="glass-panel donut-panel panel-pad">
           <div className="panel-title">Scenario Coverage</div>
           <div className="donut" style={{ background: donutGradient }}>
             <div className="donut-hole">
@@ -116,7 +116,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '24px 28px' }}>
+        <div className="glass-panel panel-pad">
           <div className="panel-title">Validation Status</div>
           {validators.map((v) => (
             <div className="validation-row" key={v.key}>

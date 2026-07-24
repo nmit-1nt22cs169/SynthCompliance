@@ -16,16 +16,6 @@ npm run dev
 
 Open http://localhost:5173
 
-## Demo seed fallback (no GPU / offline)
-
-```bash
-python scripts/generate_seed.py   # writes data/seeds/ (200 records, all validators pass)
-# Or from UI: Pipeline → "Load 200-record Seed"
-# Or API: POST /api/seed
-```
-
-Pre-loaded seed is copied to `public/data/` for instant dashboard render.
-
 ## 6-step judge demo script
 
 1. **Pipeline** — SOX + GDPR, select SoD + Late DSAR + Access Lifecycle (or defaults), 500 logs, 20% violation mix → **Run Pipeline**
@@ -65,7 +55,6 @@ packages/generators/   scenario engine + atomic writes
 packages/agents/       4 agents (Composer, Generator, ValidatorRepair, TSTRCopilot)
 services/api/          FastAPI + SSE
 src/                   Vite React dashboard (existing UI, extended)
-data/seeds/            200-record demo fallback
 public/data/           Live output (dashboard contract)
 ```
 

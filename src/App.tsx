@@ -26,7 +26,7 @@ function App() {
       {error && activeTab !== 'pipeline' && (
         <div className="center-message live-empty">
           <strong>Waiting for the next live run.</strong>
-          <p style={{ margin: '8px 0 0', fontSize: 13 }}>
+          <p className="empty-state-detail">
             Open the <button type="button" className="link-btn" onClick={() => setActiveTab('pipeline')}>Pipeline</button>{' '}
             tab and run a job to populate the dashboard from the latest files in <code>public/data/</code>.
           </p>
@@ -45,7 +45,7 @@ function App() {
       {activeTab !== 'pipeline' && !error && !data && (
         <div className="center-message live-empty">
           <strong>Fetching live pipeline output…</strong>
-          <p style={{ margin: '8px 0 0', fontSize: 13 }}>The dashboard will show the newest generated bundle as soon as the API writes the live files.</p>
+          <p className="empty-state-detail">The dashboard will show the newest generated bundle as soon as the API writes the live files.</p>
         </div>
       )}
 
