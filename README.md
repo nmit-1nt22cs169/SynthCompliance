@@ -28,6 +28,7 @@ Open http://localhost:5173 — see **[docs/DEMO.md](./docs/DEMO.md)** for the fu
 | Generators + Nemotron provider | `packages/generators/` |
 | 5 validators + TSTR + golden fidelity | `packages/validators/` |
 | SOX+GDPR taxonomy + golden set | `packages/taxonomy/` |
+| Optional: DistilBERT/DeBERTa TSTR comparison (H100/Slurm, out-of-band) | `cluster/` — see [cluster/README.md](./cluster/README.md) |
 
 ## Output contract
 
@@ -51,12 +52,29 @@ npm run build        # Production build
 npm run lint         # oxlint
 ```
 
+## Testing
+
+```bash
+cd packages/agents && python -m pytest tests/ -v
+```
+
 ## Docker
 
 ```bash
 cd infra/docker && cp .env.example .env && docker compose up --build
 ```
 
-## Nemotron (optional)
+## Nemotron
 
-Set `NVIDIA_API_KEY` for NVIDIA Build API polish, or `USE_SELF_HOSTED=true` + `NIM_BASE_URL` for self-hosted NIM. Offline deterministic generation works without keys.
+`log_id`, `timestamp`, and taxonomy fields (`violation_id`/`control_id`/`severity`/`violation_type`) are
+always deterministic — they're referential keys other rows depend on. Everything that reads as *content*
+(`user_id`/`role`, `resource`/`system`, `action`, `outcome`, `sensitivity`, violation `explanation`) is
+written by an LLM when a provider is configured, with a deterministic fallback per batch on failure. With
+no provider configured, generation still runs end-to-end, but those content fields fall back to randomly
+assigned deterministic values instead of LLM-written ones — the dashboard's "Fields LLM-generated" KPI
+shows 0 in that case, honestly.
+
+Set `NVIDIA_API_KEY` for the NVIDIA Build API, or `USE_SELF_HOSTED=true` + `NIM_BASE_URL` for a self-hosted
+NIM — this also covers a local Ollama instance, since Ollama serves an OpenAI-compatible API on
+`:11434/v1` and needs no code changes, just `NIM_BASE_URL=http://localhost:11434/v1` (or
+`http://host.docker.internal:11434/v1` from inside Docker) and `NEMOTRON_MODEL=<a pulled model>`.
