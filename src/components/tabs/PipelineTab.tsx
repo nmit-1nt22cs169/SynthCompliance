@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../Badge';
 import { deriveLineChart } from '../../lib/derive';
 import { fetchTaxonomy, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
@@ -12,6 +12,17 @@ const INDUSTRIES = [
 ];
 
 const DEFAULT_MIX = { normal: 60, suspicious: 15, violation: 20, false_positive: 5 };
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function formatClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 
 interface PipelineTabProps {
   report: ValidationReport | null;
@@ -36,6 +47,12 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   const [jobEvents, setJobEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
+  const [outcome, setOutcome] = useState<'success' | 'failed' | null>(null);
+  const [startRunId, setStartRunId] = useState<string | null>(null);
+  const [, forceTick] = useState(0);
+  const lastStageRef = useRef<string | null>(null);
 
   useEffect(() => {
     setTaxonomyLoading(true);
@@ -55,6 +72,21 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       })
       .finally(() => setTaxonomyLoading(false));
   }, []);
+
+  const isSynced = outcome === 'success' && !!report?.run_id && report.run_id !== startRunId;
+  const phase: 'idle' | 'running' | 'finalizing' | 'synced' | 'failed' = running
+    ? 'running'
+    : outcome === 'failed'
+      ? 'failed'
+      : outcome === 'success'
+        ? (isSynced ? 'synced' : 'finalizing')
+        : 'idle';
+
+  useEffect(() => {
+    if (phase !== 'running' && phase !== 'finalizing') return;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
 
   const mixTotal = mix.normal + mix.suspicious + mix.violation + mix.false_positive;
   const mixValid = mixTotal === 100;
@@ -77,6 +109,11 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     setRunning(true);
     onJobActiveChange?.(true);
     setJobEvents([]);
+    lastStageRef.current = null;
+    setStartedAt(Date.now());
+    setFinishedAt(null);
+    setOutcome(null);
+    setStartRunId(report?.run_id ?? null);
     const config: JobConfig = {
       packs,
       control_classes: controlClasses,
@@ -93,10 +130,15 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       const { job_id } = await startJob(config);
       subscribeJobEvents(
         job_id,
-        (ev) => setJobEvents((prev) => [...prev, ev]),
+        (ev) => {
+          lastStageRef.current = ev.stage;
+          setJobEvents((prev) => [...prev, ev]);
+        },
         () => {
           setRunning(false);
           onJobActiveChange?.(false);
+          setFinishedAt(Date.now());
+          setOutcome(lastStageRef.current === 'failed' ? 'failed' : 'success');
           onJobComplete?.();
         }
       );
@@ -104,6 +146,8 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       setError(e instanceof Error ? e.message : String(e));
       setRunning(false);
       onJobActiveChange?.(false);
+      setFinishedAt(Date.now());
+      setOutcome('failed');
     }
   };
 
@@ -226,8 +270,24 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
 
         {(running || jobEvents.length > 0) && (
           <div className="job-feed">
-            <div className="panel-title" style={{ marginBottom: 10 }}>
-              Live Job Stream
+            <div className="job-feed-header">
+              <div className="panel-title" style={{ marginBottom: 0 }}>
+                Live Job Stream
+              </div>
+              {phase !== 'idle' && startedAt && (
+                <div className="job-timer">
+                  <span className={`job-timer-status job-timer-status-${phase}`}>
+                    {phase === 'running' && `Running · ${formatElapsed(Date.now() - startedAt)}`}
+                    {phase === 'finalizing' && `Finalizing… writing output · ${formatElapsed((finishedAt ?? Date.now()) - startedAt)}`}
+                    {phase === 'synced' && `Completed in ${formatElapsed((finishedAt ?? Date.now()) - startedAt)}`}
+                    {phase === 'failed' && `Failed after ${formatElapsed((finishedAt ?? Date.now()) - startedAt)}`}
+                  </span>
+                  <span className="job-timer-detail">
+                    Started {formatClock(startedAt)}
+                    {finishedAt ? ` · Ended ${formatClock(finishedAt)}` : ''}
+                  </span>
+                </div>
+              )}
             </div>
             {latest && (
               <div className="job-latest">

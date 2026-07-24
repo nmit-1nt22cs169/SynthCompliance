@@ -1,4 +1,5 @@
 import { exportBundleUrl } from '../../lib/api';
+import { StaleBanner } from '../StaleBanner';
 import type { AuditLog, QaPair, Violation } from '../../types';
 
 const PREVIEW_SIZE = 8;
@@ -7,13 +8,15 @@ interface DataTabProps {
   auditLogs: AuditLog[];
   violations: Violation[];
   qaPairs: QaPair[];
+  jobActive?: boolean;
 }
 
-export function DataTab({ auditLogs, violations, qaPairs }: DataTabProps) {
+export function DataTab({ auditLogs, violations, qaPairs, jobActive }: DataTabProps) {
   const hasLiveData = auditLogs.length > 0 || violations.length > 0 || qaPairs.length > 0;
 
   return (
     <div>
+      {jobActive && <StaleBanner />}
       <div className="data-toolbar glass-panel">
         <div>
           <div className="panel-title" style={{ marginBottom: 4 }}>

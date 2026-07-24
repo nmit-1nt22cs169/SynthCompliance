@@ -1,18 +1,21 @@
 import { Fragment } from 'react';
 import { Badge } from '../Badge';
+import { StaleBanner } from '../StaleBanner';
 import { deriveFlaggedRows, deriveValidators } from '../../lib/derive';
 import type { ValidationReport } from '../../types';
 
 interface ValidationTabProps {
   report: ValidationReport;
+  jobActive?: boolean;
 }
 
-export function ValidationTab({ report }: ValidationTabProps) {
+export function ValidationTab({ report, jobActive }: ValidationTabProps) {
   const validators = deriveValidators(report);
   const flaggedRows = deriveFlaggedRows(report);
 
   return (
     <div>
+      {jobActive && <StaleBanner />}
       <div className="validator-grid">
         {validators.map((v) => (
           <div className="glass-panel validator-card" key={v.key}>

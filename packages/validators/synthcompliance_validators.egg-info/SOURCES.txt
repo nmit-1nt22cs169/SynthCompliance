@@ -8,6 +8,7 @@ synthcompliance_validators/report.py
 synthcompliance_validators/scenario_coverage.py
 synthcompliance_validators/schema_validity.py
 synthcompliance_validators/tstr.py
+synthcompliance_validators/tstr_transformer.py
 synthcompliance_validators.egg-info/PKG-INFO
 synthcompliance_validators.egg-info/SOURCES.txt
 synthcompliance_validators.egg-info/dependency_links.txt

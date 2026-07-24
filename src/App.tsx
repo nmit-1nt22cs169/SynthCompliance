@@ -33,14 +33,14 @@ function App() {
         </div>
       )}
 
-      {activeTab === 'pipeline' && (
+      <div style={{ display: activeTab === 'pipeline' ? 'block' : 'none' }}>
         <PipelineTab
           report={report}
           accent={ACCENT}
           onJobActiveChange={setJobActive}
           onJobComplete={forceRefresh}
         />
-      )}
+      </div>
 
       {activeTab !== 'pipeline' && !error && !data && (
         <div className="center-message live-empty">
@@ -49,17 +49,23 @@ function App() {
         </div>
       )}
 
-      {data && activeTab !== 'pipeline' && (
+      {data && (
         <>
-          {activeTab === 'overview' && <OverviewTab report={data.validationReport} accent={ACCENT} />}
-          {activeTab === 'validation' && <ValidationTab report={data.validationReport} />}
-          {activeTab === 'data' && (
-            <DataTab auditLogs={data.auditLogs} violations={data.violations} qaPairs={data.qaPairs} />
-          )}
-          {activeTab === 'copilot' && (
-            <CopilotTab violations={data.violations} auditLogs={data.auditLogs} />
-          )}
-          {activeTab === 'proof' && <ProofTab report={data.validationReport} accent={ACCENT} />}
+          <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
+            <OverviewTab report={data.validationReport} accent={ACCENT} jobActive={jobActive} />
+          </div>
+          <div style={{ display: activeTab === 'validation' ? 'block' : 'none' }}>
+            <ValidationTab report={data.validationReport} jobActive={jobActive} />
+          </div>
+          <div style={{ display: activeTab === 'data' ? 'block' : 'none' }}>
+            <DataTab auditLogs={data.auditLogs} violations={data.violations} qaPairs={data.qaPairs} jobActive={jobActive} />
+          </div>
+          <div style={{ display: activeTab === 'copilot' ? 'block' : 'none' }}>
+            <CopilotTab violations={data.violations} auditLogs={data.auditLogs} jobActive={jobActive} />
+          </div>
+          <div style={{ display: activeTab === 'proof' ? 'block' : 'none' }}>
+            <ProofTab report={data.validationReport} accent={ACCENT} jobActive={jobActive} />
+          </div>
         </>
       )}
     </div>

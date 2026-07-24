@@ -1,14 +1,16 @@
 import { Breadcrumb } from '../Breadcrumb';
 import { Badge } from '../Badge';
+import { StaleBanner } from '../StaleBanner';
 import { deriveCoverage, deriveKpis, deriveValidators } from '../../lib/derive';
 import type { ValidationReport } from '../../types';
 
 interface OverviewTabProps {
   report: ValidationReport;
   accent: string;
+  jobActive?: boolean;
 }
 
-export function OverviewTab({ report, accent }: OverviewTabProps) {
+export function OverviewTab({ report, accent, jobActive }: OverviewTabProps) {
   const kpis = deriveKpis(report, accent);
   const { coverage, total, donutGradient } = deriveCoverage(report, accent);
   const validators = deriveValidators(report);
@@ -30,6 +32,7 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
 
   return (
     <div>
+      {jobActive && <StaleBanner />}
       <Breadcrumb stages={report.pipeline_stages} />
 
       <div className="glass-panel tab-panel panel-pad">

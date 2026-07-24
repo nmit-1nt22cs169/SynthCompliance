@@ -23,9 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
-# Runtime data: populated by the pipeline or by `npm run dev:mockN`, not source
+# Runtime data: populated by the pipeline, not source
 public/data/*
 !public/data/.gitkeep
+
+# Python virtual environment
+.venv/
+venv/
 
 .env
 # Env files

@@ -25,3 +25,5 @@ services:
       - api
     environment:
       - VITE_API_URL=
+    volumes:
+      - ../public/data:/app/public/data

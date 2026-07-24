@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { SeverityBadge } from '../Badge';
+import { StaleBanner } from '../StaleBanner';
 import { queryCopilot } from '../../lib/api';
 import type { AuditLog, Violation } from '../../types';
 
 interface CopilotTabProps {
   violations: Violation[];
   auditLogs: AuditLog[];
+  jobActive?: boolean;
 }
 
-export function CopilotTab({ violations: _violations }: CopilotTabProps) {
+export function CopilotTab({ violations: _violations, jobActive }: CopilotTabProps) {
   const [queryText, setQueryText] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -61,6 +63,7 @@ export function CopilotTab({ violations: _violations }: CopilotTabProps) {
 
   return (
     <div className="glass-panel copilot-panel">
+      {jobActive && <StaleBanner />}
       <div className="panel-title">Compliance Copilot</div>
       <p className="copilot-sub">Live API — rule-grounded retrieval with cited evidence_log_ids from the current run.</p>
       <div className="copilot-query-row">
