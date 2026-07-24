@@ -1,79 +1,89 @@
 import { useState } from 'react';
 import { SeverityBadge } from '../Badge';
-import type { Violation } from '../../types';
+import { queryCopilot } from '../../lib/api';
+import type { AuditLog, Violation } from '../../types';
 
 interface CopilotTabProps {
   violations: Violation[];
+  auditLogs: AuditLog[];
 }
 
-const KEYWORD_MAP: { kw: string; type: string }[] = [
-  { kw: 'segregation of duties', type: 'segregation_of_duties' },
-  { kw: 'segregation', type: 'segregation_of_duties' },
-  { kw: 'unauthorized access', type: 'unauthorized_access' },
-  { kw: 'unauthorized', type: 'unauthorized_access' },
-  { kw: 'late dsar', type: 'late_dsar' },
-  { kw: 'dsar', type: 'late_dsar' },
-  { kw: 'missing approval', type: 'missing_approval' },
-  { kw: 'approval', type: 'missing_approval' }
-];
-
-function runQuery(violations: Violation[], rawQuery: string): Violation[] {
-  const q = rawQuery.toLowerCase().trim();
-  if (!q) return [];
-  const matchedTypes = new Set<string>();
-  KEYWORD_MAP.forEach(({ kw, type }) => {
-    if (q.includes(kw)) matchedTypes.add(type);
-  });
-  let matches: Violation[];
-  if (matchedTypes.size > 0) {
-    matches = violations.filter((v) => matchedTypes.has(v.violation_type));
-  } else {
-    matches = violations.filter(
-      (v) =>
-        v.violation_type.replace(/_/g, ' ').includes(q) ||
-        v.explanation.toLowerCase().includes(q) ||
-        v.control_id.toLowerCase().includes(q)
-    );
-  }
-  return matches.slice(0, 5);
-}
-
-export function CopilotTab({ violations }: CopilotTabProps) {
+export function CopilotTab({ violations: _violations }: CopilotTabProps) {
   const [queryText, setQueryText] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
-  const [results, setResults] = useState<Violation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [results, setResults] = useState<
+    {
+      violation_id: string;
+      log_id: string;
+      control_id: string;
+      severity: Violation['severity'];
+      explanation: string;
+    }[]
+  >([]);
+  const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!queryText.trim()) {
       setHasSearched(false);
       setResults([]);
+      setAnswer(null);
+      setError(null);
       return;
     }
-    setResults(runQuery(violations, queryText));
+    setLoading(true);
     setHasSearched(true);
+    setError(null);
+    try {
+      const resp = await queryCopilot(queryText);
+      setAnswer(resp.answer);
+      setEvidenceIds(resp.evidence_log_ids);
+      setResults(
+        resp.citations.map((c) => ({
+          violation_id: c.violation_id,
+          log_id: c.log_id,
+          control_id: c.control_id,
+          severity: c.severity as Violation['severity'],
+          explanation: c.explanation
+        }))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Copilot API unavailable — ensure dev:api is running');
+      setResults([]);
+      setAnswer(null);
+      setEvidenceIds([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="glass-panel copilot-panel">
       <div className="panel-title">Compliance Copilot</div>
+      <p className="copilot-sub">Live API — rule-grounded retrieval with cited evidence_log_ids from the current run.</p>
       <div className="copilot-query-row">
         <input
           type="text"
           className="copilot-input"
-          placeholder="Ask about a violation, e.g. 'unauthorized access' or 'late DSAR'"
+          placeholder="e.g. Which logs show an SoD violation involving invoice approval?"
           value={queryText}
           onChange={(e) => setQueryText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
           }}
         />
-        <button className="copilot-button" onClick={submit}>
-          Query
+        <button className="copilot-button" onClick={submit} disabled={loading}>
+          {loading ? 'Querying…' : 'Query'}
         </button>
       </div>
 
-      {hasSearched && (
+      {error && <div className="wizard-error">{error}</div>}
+
+      {hasSearched && !error && (
         <div className="copilot-results">
+          {answer && <div className="copilot-answer">{answer}</div>}
           {results.length > 0 ? (
             results.map((r) => (
               <div className="copilot-result-card" key={r.violation_id}>
@@ -86,10 +96,10 @@ export function CopilotTab({ violations }: CopilotTabProps) {
               </div>
             ))
           ) : (
-            <div className="copilot-empty">
-              No matching violations found for that query. Try "segregation of duties", "unauthorized access",
-              "late DSAR", or "missing approval".
-            </div>
+            <div className="copilot-empty">No matching violations in the live corpus for that query.</div>
+          )}
+          {evidenceIds.length > 0 && (
+            <div className="copilot-evidence-list">evidence_log_ids: {evidenceIds.join(', ')}</div>
           )}
         </div>
       )}

@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: synthcompliance-agents
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: synthcompliance-taxonomy
+Requires-Dist: synthcompliance-validators
+Requires-Dist: synthcompliance-generators

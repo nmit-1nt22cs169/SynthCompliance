@@ -13,6 +13,21 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
   const { coverage, total, donutGradient } = deriveCoverage(report, accent);
   const validators = deriveValidators(report);
 
+  const violationRatio = total > 0
+    ? ((report.validators.scenario_coverage.violation / total) * 100).toFixed(1)
+    : '0.0';
+  const recallLift = report.tstr_metrics ? ((report.tstr_metrics.recall_lift ?? 0) * 100).toFixed(0) : '0';
+  const goldenScore = report.golden_set_fidelity?.label_fidelity_score?.toFixed(1) ?? '0.0';
+  const repairedRows = report.repair_log?.repaired_log_ids?.length ?? 0;
+
+  const feedback = report.feedback_loop;
+  const juryHighlights = [
+    { label: 'Rare-class recall lift', value: `${recallLift}%`, detail: 'TSTR proof for judges' },
+    { label: 'Golden fidelity', value: `${goldenScore}%`, detail: 'Taxonomy match against seeded golden records' },
+    { label: 'Repaired rows', value: `${repairedRows}`, detail: 'Rows corrected in the repair loop' },
+    { label: 'Violation ratio', value: `${violationRatio}%`, detail: 'Oversampled compliance edge cases' }
+  ];
+
   return (
     <div>
       <Breadcrumb stages={report.pipeline_stages} />
@@ -38,6 +53,42 @@ export function OverviewTab({ report, accent }: OverviewTabProps) {
                 />
               </div>
               <div className="kpi-label">{k.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+        <div className="panel-title" style={{ marginBottom: 12 }}>
+          Adaptive Feedback Loop
+        </div>
+        <div className="validation-detail" style={{ marginBottom: 12 }}>
+          Newly detected patterns are stored after each run and reweighted in the next generation pass.
+        </div>
+        <div className="kpi-grid">
+          <div className="kpi-card">
+            <div className="kpi-value">{feedback?.new_violation_patterns?.length ? feedback.new_violation_patterns.join(', ') : 'none yet'}</div>
+            <div className="kpi-label">New patterns detected</div>
+            <div className="validation-detail">The next run will bias generation toward these violation types.</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-value">{feedback?.improved ? 'improving' : 'monitoring'}</div>
+            <div className="kpi-label">TSTR feedback state</div>
+            <div className="validation-detail">Tracks whether the latest run improved recall lift versus the previous run.</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-panel tab-panel" style={{ padding: '24px 28px' }}>
+        <div className="panel-title" style={{ marginBottom: 12 }}>
+          Jury Highlights
+        </div>
+        <div className="kpi-grid">
+          {juryHighlights.map((item) => (
+            <div className="kpi-card" key={item.label}>
+              <div className="kpi-value">{item.value}</div>
+              <div className="kpi-label">{item.label}</div>
+              <div className="validation-detail">{item.detail}</div>
             </div>
           ))}
         </div>

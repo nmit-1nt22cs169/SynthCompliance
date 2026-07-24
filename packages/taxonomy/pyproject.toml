@@ -1,0 +1,14 @@
+[project]
+name = "synthcompliance-taxonomy"
+version = "0.1.0"
+description = "SOX + GDPR control taxonomy and golden set for SynthCompliance"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["synthcompliance_taxonomy*"]

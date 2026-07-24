@@ -5,7 +5,8 @@ const TAB_DEFS: { id: TabId; label: string }[] = [
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'validation', label: 'Validation' },
   { id: 'data', label: 'Data' },
-  { id: 'copilot', label: 'Copilot' }
+  { id: 'copilot', label: 'Copilot' },
+  { id: 'proof', label: 'Proof' }
 ];
 
 interface TabBarProps {

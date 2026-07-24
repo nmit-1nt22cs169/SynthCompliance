@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "uvicorn app.main:app --reload --port 8000 --app-dir services/api",
     "dev:mock1": "node scripts/load-mock-data.mjs 1",
     "dev:mock2": "node scripts/load-mock-data.mjs 2",
     "dev:mock3": "node scripts/load-mock-data.mjs 3",
+    "seed": "python scripts/generate_seed.py",
+    "golden": "python scripts/generate_golden.py",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "created_at": "2026-07-23T16:20:35Z",
+  "job_id": "job_d3ea554079",
+  "total_records": 200,
+  "regulation_packs": [
+    "SOX",
+    "GDPR"
+  ],
+  "control_classes": [
+    "segregation_of_duties",
+    "privileged_access_misuse",
+    "change_without_approval",
+    "journal_entry_override",
+    "period_close_breach",
+    "vendor_master_tamper",
+    "audit_trail_gap",
+    "access_lifecycle_breach",
+    "late_dsar",
+    "erasure_failure",
+    "unlawful_basis",
+    "purpose_limitation_breach",
+    "data_minimisation_breach",
+    "cross_border_transfer",
+    "breach_notification_late",
+    "consent_lifecycle_breach"
+  ],
+  "scenario_mix": {
+    "normal": 120,
+    "suspicious": 30,
+    "violation": 40,
+    "false_positive": 10
+  },
+  "model_used": "deterministic-scenario-engine",
+  "curator_version": "0.1.0"
+}

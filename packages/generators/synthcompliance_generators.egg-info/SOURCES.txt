@@ -1,0 +1,11 @@
+pyproject.toml
+synthcompliance_generators/__init__.py
+synthcompliance_generators/corpus.py
+synthcompliance_generators/io_atomic.py
+synthcompliance_generators/provider.py
+synthcompliance_generators/scenario_engine.py
+synthcompliance_generators.egg-info/PKG-INFO
+synthcompliance_generators.egg-info/SOURCES.txt
+synthcompliance_generators.egg-info/dependency_links.txt
+synthcompliance_generators.egg-info/requires.txt
+synthcompliance_generators.egg-info/top_level.txt

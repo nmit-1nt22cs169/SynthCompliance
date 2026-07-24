@@ -73,11 +73,20 @@ const VALIDATOR_NAMES: Record<string, string> = {
   schema_validity: 'Schema Validity',
   pii_leakage: 'PII Leakage',
   duplicate_check: 'Duplicate Check',
-  label_alignment: 'Label Alignment'
+  label_alignment: 'Label Alignment',
+  golden_set_fidelity: 'Golden-Set Fidelity'
 };
 
 export function deriveValidators(report: ValidationReport): ValidatorSummary[] {
-  return Object.entries(VALIDATOR_NAMES).map(([key, name]) => {
+  const base = Object.entries(VALIDATOR_NAMES).map(([key, name]) => {
+    if (key === 'golden_set_fidelity') {
+      const g = report.golden_set_fidelity;
+      const detail = g
+        ? `label ${g.label_fidelity_score.toFixed(1)}% · stat ${g.statistical_fidelity_score.toFixed(1)}%`
+        : 'not computed';
+      const status = (g?.status as ValidatorStatus) ?? 'warn';
+      return { key, name, detail, status };
+    }
     let detail: string;
     let status: ValidatorStatus;
     if (key === 'pii_leakage') {
@@ -99,6 +108,7 @@ export function deriveValidators(report: ValidationReport): ValidatorSummary[] {
     }
     return { key, name, detail, status };
   });
+  return base;
 }
 
 export interface FlaggedRow {
@@ -151,7 +161,11 @@ const STAGE_SHORT: Record<string, string> = {
   'Scenario Composer': 'Scenario',
   'Regulation Annotator': 'Annotator',
   'NeMo Curator': 'Curator',
-  'Output Datasets': 'Output'
+  'Output Datasets': 'Output',
+  'Log Generator': 'Generator',
+  'Validator': 'Validator',
+  'Repair Loop': 'Repair',
+  'TSTR Copilot': 'TSTR'
 };
 
 export function deriveLineChart(report: ValidationReport): LineChart {

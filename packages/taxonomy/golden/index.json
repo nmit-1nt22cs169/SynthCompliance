@@ -1,0 +1,85 @@
+{
+  "classes": [
+    {
+      "violation_type": "segregation_of_duties",
+      "count": 10,
+      "file": "segregation_of_duties.jsonl"
+    },
+    {
+      "violation_type": "privileged_access_misuse",
+      "count": 10,
+      "file": "privileged_access_misuse.jsonl"
+    },
+    {
+      "violation_type": "change_without_approval",
+      "count": 10,
+      "file": "change_without_approval.jsonl"
+    },
+    {
+      "violation_type": "journal_entry_override",
+      "count": 10,
+      "file": "journal_entry_override.jsonl"
+    },
+    {
+      "violation_type": "period_close_breach",
+      "count": 10,
+      "file": "period_close_breach.jsonl"
+    },
+    {
+      "violation_type": "vendor_master_tamper",
+      "count": 10,
+      "file": "vendor_master_tamper.jsonl"
+    },
+    {
+      "violation_type": "audit_trail_gap",
+      "count": 10,
+      "file": "audit_trail_gap.jsonl"
+    },
+    {
+      "violation_type": "access_lifecycle_breach",
+      "count": 10,
+      "file": "access_lifecycle_breach.jsonl"
+    },
+    {
+      "violation_type": "late_dsar",
+      "count": 10,
+      "file": "late_dsar.jsonl"
+    },
+    {
+      "violation_type": "erasure_failure",
+      "count": 10,
+      "file": "erasure_failure.jsonl"
+    },
+    {
+      "violation_type": "unlawful_basis",
+      "count": 10,
+      "file": "unlawful_basis.jsonl"
+    },
+    {
+      "violation_type": "purpose_limitation_breach",
+      "count": 10,
+      "file": "purpose_limitation_breach.jsonl"
+    },
+    {
+      "violation_type": "data_minimisation_breach",
+      "count": 10,
+      "file": "data_minimisation_breach.jsonl"
+    },
+    {
+      "violation_type": "cross_border_transfer",
+      "count": 10,
+      "file": "cross_border_transfer.jsonl"
+    },
+    {
+      "violation_type": "breach_notification_late",
+      "count": 10,
+      "file": "breach_notification_late.jsonl"
+    },
+    {
+      "violation_type": "consent_lifecycle_breach",
+      "count": 10,
+      "file": "consent_lifecycle_breach.jsonl"
+    }
+  ],
+  "per_class": 10
+}

@@ -82,6 +82,31 @@ export interface PipelineStage {
   duration_ms: number;
 }
 
+export interface GoldenSetFidelity {
+  label_fidelity_score: number;
+  statistical_fidelity_score: number;
+  matched_seeds?: number;
+  total_seeds?: number;
+  classes_matched?: number;
+  classes_total?: number;
+  max_field_deviation_pct?: number;
+  status: ValidatorStatus | string;
+  notes?: string;
+}
+
+export interface TstrMetrics {
+  baseline_rare_recall: number;
+  synthetic_trained_rare_recall: number;
+  recall_lift: number;
+  train_size?: number;
+  eval_size?: number;
+  eval_violation_rate?: number;
+  train_violation_rate?: number;
+  status?: string;
+  model?: string;
+  notes?: string;
+}
+
 export interface ValidationReport {
   run_id: string;
   generated_at: string;
@@ -104,6 +129,14 @@ export interface ValidationReport {
     label_alignment: LabelAlignmentValidator;
     scenario_coverage: ScenarioCoverage;
   };
+  golden_set_fidelity?: GoldenSetFidelity;
+  tstr_metrics?: TstrMetrics;
+  repair_log?: { repaired_log_ids: string[]; iterations: number };
+  feedback_loop?: {
+    new_violation_patterns: string[];
+    next_violation_type_weights: Record<string, number>;
+    improved: boolean;
+  };
   pipeline_stages: PipelineStage[];
 }
 
@@ -114,4 +147,18 @@ export interface DashboardData {
   validationReport: ValidationReport;
 }
 
-export type TabId = 'overview' | 'pipeline' | 'validation' | 'data' | 'copilot';
+export type TabId = 'overview' | 'pipeline' | 'validation' | 'data' | 'copilot' | 'proof';
+
+export interface JobConfig {
+  packs: string[];
+  control_classes: string[];
+  scenario_mix: {
+    normal: number;
+    suspicious: number;
+    violation: number;
+    false_positive: number;
+  };
+  n_logs: number;
+  industry: string;
+  use_seed_fallback: boolean;
+}
