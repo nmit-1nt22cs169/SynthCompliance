@@ -14,9 +14,9 @@ export function deriveKpis(report: ValidationReport, accent: string): Kpi[] {
     { label: 'Violations labelled', actual: report.dataset_actual.violations, target: report.dataset_targets.violations },
     { label: 'Q&A pairs', actual: report.dataset_actual.qa_pairs, target: report.dataset_targets.qa_pairs },
     {
-      label: 'Investigation summaries',
-      actual: report.dataset_actual.investigation_summaries,
-      target: report.dataset_targets.investigation_summaries
+      label: 'Fields LLM-generated',
+      actual: report.dataset_actual.llm_fields,
+      target: report.dataset_targets.llm_fields
     }
   ];
   return defs.map((k) => {

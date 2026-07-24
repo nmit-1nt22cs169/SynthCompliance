@@ -50,7 +50,7 @@ def build_validation_report(
     scenario_labels: dict[str, str] | None = None,
     pipeline_stages: list[dict[str, Any]] | None = None,
     tstr_metrics: dict[str, Any] | None = None,
-    investigation_summaries: int = 2,
+    llm_fields_actual: int = 0,
     scope_types: list[str] | None = None,
 ) -> dict[str, Any]:
     results = run_all_validators(audit_logs, violations, scenario_labels, scope_types=scope_types)
@@ -68,13 +68,18 @@ def build_validation_report(
             "audit_logs": targets.get("audit_logs", len(audit_logs)),
             "violations": targets.get("violations", len(violations)),
             "qa_pairs": targets.get("qa_pairs", len(qa_pairs)),
-            "investigation_summaries": targets.get("investigation_summaries", investigation_summaries),
+            # How many audit-log/violation fields were eligible for the LLM to write this run
+            # (see LogGeneratorAgent) — a property of dataset composition, not of whether a
+            # provider is actually configured, so the target is always real even at 0 actual.
+            "llm_fields": targets.get("llm_fields", 0),
         },
         "dataset_actual": {
             "audit_logs": len(audit_logs),
             "violations": len(violations),
             "qa_pairs": len(qa_pairs),
-            "investigation_summaries": investigation_summaries,
+            # How many of those eligible fields were *actually* written by the LLM this run
+            # (0 if no provider configured, or less than target if some batches failed).
+            "llm_fields": llm_fields_actual,
         },
         "validators": validators,
         "golden_set_fidelity": results["golden_set_fidelity"],

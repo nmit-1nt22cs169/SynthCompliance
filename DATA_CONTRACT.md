@@ -125,13 +125,13 @@ A single object summarizing one pipeline run and its validator results.
     "audit_logs": 500,
     "violations": 150,
     "qa_pairs": 100,
-    "investigation_summaries": 2
+    "llm_fields": 2340
   },
   "dataset_actual": {
     "audit_logs": 500,
     "violations": 147,
     "qa_pairs": 100,
-    "investigation_summaries": 2
+    "llm_fields": 2298
   },
   "validators": {
     "schema_validity": {
@@ -197,7 +197,7 @@ Top-level fields:
 |---|---|---|
 | `run_id` | string | Unique per pipeline run. |
 | `generated_at` | string | ISO 8601 timestamp of when this report was produced. |
-| `dataset_targets` | object | Intended row counts (all four counters required, even if `investigation_summaries` isn't a file the UI reads today). |
+| `dataset_targets` | object | Intended row counts. `llm_fields` is the number of audit-log/violation fields (`user_id`, `resource`, `action`, `outcome`, `sensitivity`, violation `explanation`) eligible to be written by the LLM this run — a property of dataset composition, not of whether a provider is configured. |
 | `dataset_actual` | object | Actual row counts produced this run. Same four keys. |
 | `validators` | object | Exactly the five keys below — no more, no fewer. |
 | `pipeline_stages` | array | One entry per stage, **in execution order**. `status` is one of `"completed"` \| `"running"` \| `"failed"` \| `"skipped"`. |

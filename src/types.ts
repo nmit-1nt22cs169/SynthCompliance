@@ -143,13 +143,13 @@ export interface ValidationReport {
     audit_logs: number;
     violations: number;
     qa_pairs: number;
-    investigation_summaries: number;
+    llm_fields: number;
   };
   dataset_actual: {
     audit_logs: number;
     violations: number;
     qa_pairs: number;
-    investigation_summaries: number;
+    llm_fields: number;
   };
   validators: {
     schema_validity: SchemaValidityValidator;

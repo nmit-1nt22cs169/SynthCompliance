@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from synthcompliance_agents.feedback import update_feedback_state
 from synthcompliance_generators.corpus import generate_corpus
-from synthcompliance_generators.io_atomic import write_dataset_bundle
+from synthcompliance_generators.io_atomic import write_dataset_bundle, write_json
 from synthcompliance_generators.provider import get_provider
 from synthcompliance_generators.scenario_engine import (
     EVAL_TARGETS,
@@ -20,6 +20,7 @@ from synthcompliance_generators.scenario_engine import (
     ScenarioEngine,
 )
 from synthcompliance_taxonomy.controls import TAXONOMY
+from synthcompliance_taxonomy.roster import ASSET_LIST, USER_ROSTER
 from synthcompliance_validators.report import build_validation_report
 from synthcompliance_validators.tstr import run_tstr
 
@@ -114,42 +115,286 @@ class ScenarioComposerAgent:
         return plan
 
 
+POLISH_BATCH_SIZE = 12
+# Smaller than POLISH_BATCH_SIZE and given a bigger max_tokens budget below: this call's
+# response can have up to 5 fields per item (vs. 1 for the explanation write), plus each item
+# carries its own candidate shortlists, and the configured model spends a chunk of its token
+# budget on internal reasoning before the final JSON — a larger batch here reliably truncates
+# mid-response (verified: 25 items @ 3 fields/2048 tokens hit finish_reason="length").
+SELECTION_BATCH_SIZE = 8
+SELECTION_MAX_TOKENS = 6000
+SHORTLIST_SIZE = 4
+VALID_ACTIONS = ("CREATE", "UPDATE", "DELETE", "APPROVE", "EXPORT", "READ")
+VALID_OUTCOMES = ("success", "denied")
+VALID_SENSITIVITIES = ("low", "medium", "high", "critical")
+# late_dsar / breach_notification_late force a specific action AND resource, tied to the
+# day/hour count encoded in `resource` (see corpus.py) — leave both alone regardless of LLM
+# availability.
+ACTION_FORCED_TYPES = ("late_dsar", "breach_notification_late")
+
+
 class LogGeneratorAgent:
-    """Generates audit_logs → violations/QAs from the plan (deterministic + optional LLM polish)."""
+    """Generates audit_logs → violations/QAs from the plan. `log_id`/`timestamp` (and, for
+    violations, `violation_id`/`control_id`/`severity`/`violation_type`) stay deterministic —
+    referential keys and taxonomy ground-truth other rows depend on. Everything else that reads
+    as *content* — `user_id`/`role`, `resource`/`system`, `action`, `outcome`, `sensitivity`, and
+    violation `explanation` — is written by the LLM when a provider is configured, batched for
+    speed with a deterministic fallback per batch on failure. `user_id`/`resource` are picked
+    from a per-log candidate shortlist (never invented) so roster/asset referential integrity
+    always holds; `role`/`system` are then derived deterministically from whichever candidate
+    was picked, never asked of the LLM directly. Rows where a field is forced by business logic
+    (e.g. every violation's outcome is "success") are never handed to the LLM for that field."""
 
     def run(self, plan: dict[str, Any], on_event: EventCb | None = None) -> dict[str, Any]:
         engine: ScenarioEngine = plan["engine"]
         _emit(on_event, {"stage": "generating", "message": "Building ID pool", "count": 0})
         corpus = generate_corpus(plan, engine)
         n = len(corpus["audit_logs"])
-        # Simulate tick-up for SSE demo
-        for i in range(0, n, max(1, n // 8)):
+        # generate_corpus() is deterministic and already complete at this point — this is a
+        # single real "done" event, not a simulated live tick (previously this faked a
+        # progress-bar animation over already-finished data, which read as if it were doing
+        # LLM work here; it wasn't — the real LLM steps are the two blocks below).
+        _emit(
+            on_event,
+            {
+                "stage": "generating",
+                "message": f"Assigned {n} log IDs",
+                "count": n,
+                "total": n,
+            },
+        )
+
+        provider = get_provider()
+        violations = corpus["violations"]
+        log_by_id = {row["log_id"]: row for row in corpus["audit_logs"]}
+
+        vtype_by_log = {v["log_id"]: v["violation_type"] for v in violations}
+        labels = corpus["scenario_labels"]
+        # Business-logic forced subsets — these encode what the scenario *is*, not a
+        # stylistic choice, so the LLM never touches them regardless of availability:
+        #  - action/resource: late_dsar/breach_notification_late must keep their forced
+        #    action ("EXPORT") and synthetic resource path (day/hour count encoded in it)
+        #  - outcome: every violation log must stay "success" — that's what makes it one
+        #  - sensitivity: violations use taxonomy severity; false_positive stays "high"
+        action_and_resource_forced = {
+            v["log_id"] for v in violations if v["violation_type"] in ACTION_FORCED_TYPES
+        }
+        outcome_forced = {v["log_id"] for v in violations}
+        sensitivity_forced = {
+            lid for lid, label in labels.items() if label in ("violation", "false_positive")
+        }
+
+        def needed_fields(log_id: str) -> list[str]:
+            fields = ["user_id"]
+            if log_id not in action_and_resource_forced:
+                fields += ["action", "resource"]
+            if log_id not in outcome_forced:
+                fields.append("outcome")
+            if log_id not in sensitivity_forced:
+                fields.append("sensitivity")
+            return fields
+
+        # Eligible field count is a property of dataset composition, not of whether a provider
+        # is configured — always compute it so "Fields LLM-generated" is honest about "0
+        # written" (no provider) vs. "nothing to write" (dataset genuinely has none eligible).
+        llm_fields_target = sum(len(needed_fields(row["log_id"])) for row in corpus["audit_logs"])
+        llm_fields_target += len(violations)  # one explanation each
+        llm_fields_actual = 0
+
+        if provider.available and corpus["audit_logs"]:
+            eligible = corpus["audit_logs"]
+            total = len(eligible)
+            counts = {"user_id": 0, "resource": 0, "action": 0, "outcome": 0, "sensitivity": 0}
+            for start in range(0, total, SELECTION_BATCH_SIZE):
+                batch = eligible[start : start + SELECTION_BATCH_SIZE]
+                done = min(start + SELECTION_BATCH_SIZE, total)
+                _emit(
+                    on_event,
+                    {
+                        "stage": "generating",
+                        "message": f"Nemotron: writing log content {done}/{total}",
+                        "count": done,
+                        "total": total,
+                    },
+                )
+                # Each log gets its own small candidate shortlist for user_id/resource so the
+                # LLM is choosing, not inventing — this preserves roster/asset referential
+                # integrity no matter what it picks. role/system are never asked of the LLM;
+                # they're derived below from whichever candidate it picked.
+                row_candidates: dict[str, dict[str, list[dict[str, str]]]] = {}
+                items_payload = []
+                for row in batch:
+                    lid = row["log_id"]
+                    user_cands = engine.rng.sample(USER_ROSTER, min(SHORTLIST_SIZE, len(USER_ROSTER)))
+                    asset_cands = engine.rng.sample(ASSET_LIST, min(SHORTLIST_SIZE, len(ASSET_LIST)))
+                    row_candidates[lid] = {"users": user_cands, "assets": asset_cands}
+                    items_payload.append(
+                        {
+                            "log_id": lid,
+                            "context": vtype_by_log.get(lid, "routine access"),
+                            "fields_needed": needed_fields(lid),
+                            "user_candidates": [u["user_id"] for u in user_cands],
+                            "resource_candidates": [a["resource"] for a in asset_cands],
+                        }
+                    )
+                # LLM picks only from the fixed vocabularies/candidates below, and only for the
+                # fields listed in each item's fields_needed. Re-validated again on apply
+                # (belt-and-suspenders): any batch that fails, returns malformed JSON, picks
+                # outside the vocabulary/candidates, or answers an unrequested field is ignored
+                # for that field, keeping the log's deterministic scaffold value as a fallback.
+                chosen_fields = provider.complete_json(
+                    system=(
+                        "For each audit-log entry, choose values ONLY for the fields listed in "
+                        "its fields_needed. `user_id` must be exactly one of that item's "
+                        "user_candidates. `resource` must be exactly one of that item's "
+                        "resource_candidates. Valid action values: "
+                        f"{', '.join(VALID_ACTIONS)}. Valid outcome values: "
+                        f"{', '.join(VALID_OUTCOMES)}. Valid sensitivity values: "
+                        f"{', '.join(VALID_SENSITIVITIES)}. Never invent a value outside these "
+                        "lists/candidates, and never include a field not in fields_needed. "
+                        "Return strict JSON {items:[{log_id, user_id?, resource?, action?, "
+                        "outcome?, sensitivity?}]} with exactly one item per input log_id, no "
+                        "extra commentary."
+                    ),
+                    user=str(items_payload),
+                    max_tokens=SELECTION_MAX_TOKENS,
+                )
+                if not isinstance(chosen_fields, dict) or "items" not in chosen_fields:
+                    continue
+                by_id = {row["log_id"]: row for row in batch}
+                for item in chosen_fields["items"]:
+                    lid = item.get("log_id")
+                    if lid not in by_id:
+                        continue
+                    row = by_id[lid]
+                    cands = row_candidates[lid]
+
+                    picked_user = item.get("user_id")
+                    # Resolve against this row's own candidate objects, not a global id->object
+                    # map — ASSET_LIST has 200 entries but only 168 unique `resource` strings (8
+                    # duplicated across different assets with different `system`s), so a global
+                    # resource->asset map can silently resolve to a *different* asset than the
+                    # one actually offered/picked.
+                    user = next((u for u in cands["users"] if u["user_id"] == picked_user), None)
+                    if user is not None:
+                        row["user_id"] = user["user_id"]
+                        row["role"] = user["role"]
+                        counts["user_id"] += 1
+
+                    if lid not in action_and_resource_forced:
+                        picked_resource = item.get("resource")
+                        asset = next((a for a in cands["assets"] if a["resource"] == picked_resource), None)
+                        if asset is not None:
+                            old_resource = row["resource"]
+                            row["resource"] = asset["resource"]
+                            row["system"] = asset["system"]
+                            counts["resource"] += 1
+                            # Keep the QA-pair question (built from the original scaffolded
+                            # resource, before this pass ran) grounded in the new one.
+                            vtype = vtype_by_log.get(lid)
+                            if vtype:
+                                old_q = f"Which logs show a {vtype.replace('_', ' ')} involving {old_resource}?"
+                                new_q = f"Which logs show a {vtype.replace('_', ' ')} involving {asset['resource']}?"
+                                for qa in corpus["qa_pairs"]:
+                                    if qa.get("question") == old_q:
+                                        qa["question"] = new_q
+
+                        action = item.get("action")
+                        if action in VALID_ACTIONS:
+                            row["action"] = action
+                            counts["action"] += 1
+
+                    outcome = item.get("outcome")
+                    if lid not in outcome_forced and outcome in VALID_OUTCOMES:
+                        row["outcome"] = outcome
+                        counts["outcome"] += 1
+
+                    sensitivity = item.get("sensitivity")
+                    if lid not in sensitivity_forced and sensitivity in VALID_SENSITIVITIES:
+                        row["sensitivity"] = sensitivity
+                        counts["sensitivity"] += 1
             _emit(
                 on_event,
                 {
                     "stage": "generating",
-                    "message": f"Generated {min(i + max(1, n // 8), n)} / {n} logs",
-                    "count": min(i + max(1, n // 8), n),
-                    "total": n,
+                    "message": (
+                        f"Nemotron log content complete: {counts['user_id']} users, "
+                        f"{counts['resource']} resources, {counts['action']} actions, "
+                        f"{counts['outcome']} outcomes, {counts['sensitivity']} sensitivities "
+                        f"({total} logs)"
+                    ),
                 },
             )
-            time.sleep(0.05)
+            llm_fields_actual += sum(counts.values())
 
-        provider = get_provider()
-        if provider.available:
-            _emit(on_event, {"stage": "generating", "message": "Nemotron polish (optional)"})
-            # Optional: enrich a few explanations — never invent control_ids
-            sample = corpus["violations"][:3]
-            polished = provider.complete_json(
-                system="You rewrite compliance violation explanations. Keep control_id unchanged. Return JSON {items:[{violation_id, explanation}]}",
-                user=str([{"violation_id": v["violation_id"], "explanation": v["explanation"], "control_id": v["control_id"]} for v in sample]),
-            )
-            if isinstance(polished, dict) and "items" in polished:
-                by_id = {v["violation_id"]: v for v in corpus["violations"]}
-                for item in polished["items"]:
+        if provider.available and violations:
+            total = len(violations)
+            written = 0
+            for start in range(0, total, POLISH_BATCH_SIZE):
+                batch = violations[start : start + POLISH_BATCH_SIZE]
+                done = min(start + POLISH_BATCH_SIZE, total)
+                _emit(
+                    on_event,
+                    {
+                        "stage": "generating",
+                        "message": f"Nemotron: writing violation explanations {done}/{total}",
+                        "count": done,
+                        "total": total,
+                    },
+                )
+                # Written fresh from the *current* (possibly LLM-reassigned above) user_id/role/
+                # resource on each violation's log, not polished from the deterministic seed
+                # text — otherwise a reassigned user/resource would leave the explanation
+                # describing someone/something else. control_id/violation_id/violation_type
+                # stay ground-truth; never invented or changed. Any batch that fails or returns
+                # malformed JSON just keeps its deterministic template explanation.
+                written_fields = provider.complete_json(
+                    system=(
+                        "You write compliance-violation explanations that read like a real audit "
+                        "note: one concise sentence each, strictly grounded in the given "
+                        "user_id, role, and resource — never reference any other identifiers. "
+                        "Keep control_id and violation_id exactly as given — never invent or "
+                        "change them. Return strict JSON {items:[{violation_id, explanation}]} "
+                        "with exactly one item per input violation_id, no extra commentary."
+                    ),
+                    user=str(
+                        [
+                            {
+                                "violation_id": v["violation_id"],
+                                "control_id": v["control_id"],
+                                "violation_type": v["violation_type"],
+                                "user_id": log_by_id[v["log_id"]]["user_id"],
+                                "role": log_by_id[v["log_id"]]["role"],
+                                "resource": log_by_id[v["log_id"]]["resource"],
+                            }
+                            for v in batch
+                        ]
+                    ),
+                )
+                if not isinstance(written_fields, dict) or "items" not in written_fields:
+                    continue
+                by_id = {v["violation_id"]: v for v in batch}
+                for item in written_fields["items"]:
                     vid = item.get("violation_id")
-                    if vid in by_id and item.get("explanation"):
-                        by_id[vid]["explanation"] = item["explanation"]
+                    new_explanation = item.get("explanation")
+                    if vid not in by_id or not new_explanation:
+                        continue
+                    v = by_id[vid]
+                    old_answer_prefix = f"{v['log_id']} — {v['explanation']}"
+                    v["explanation"] = new_explanation
+                    written += 1
+                    # Keep any QA pair answer grounded in the same (now written) explanation.
+                    for qa in corpus["qa_pairs"]:
+                        if qa.get("answer") == old_answer_prefix:
+                            qa["answer"] = f"{v['log_id']} — {new_explanation}"
+            _emit(
+                on_event,
+                {
+                    "stage": "generating",
+                    "message": f"Nemotron explanations complete: {written}/{total} written",
+                },
+            )
+            llm_fields_actual += written
 
         _emit(
             on_event,
@@ -160,6 +405,8 @@ class LogGeneratorAgent:
                 "total": n,
             },
         )
+        corpus["llm_fields_target"] = llm_fields_target
+        corpus["llm_fields_actual"] = llm_fields_actual
         return corpus
 
 
@@ -174,6 +421,7 @@ class ValidatorRepairAgent:
         *,
         run_id: str,
         targets: dict[str, int],
+        llm_fields_actual: int = 0,
         scope_types: list[str] | None = None,
         on_event: EventCb | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -183,9 +431,13 @@ class ValidatorRepairAgent:
         labels = dict(corpus["scenario_labels"])
         repaired_ids: list[str] = []
 
+        # Composer/Log Generator durations are filled in by PipelineOrchestrator after this
+        # method returns (it's the one that actually times those calls) — these are overwritten
+        # before anything reads them; 0 rather than a guessed number so it's obviously a
+        # placeholder if ever inspected mid-run.
         stages = [
-            {"stage": "Scenario Composer", "status": "completed", "duration_ms": 400},
-            {"stage": "Log Generator", "status": "completed", "duration_ms": 1200},
+            {"stage": "Scenario Composer", "status": "completed", "duration_ms": 0},
+            {"stage": "Log Generator", "status": "completed", "duration_ms": 0},
             {"stage": "Validator", "status": "running", "duration_ms": 0},
             {"stage": "Repair Loop", "status": "skipped", "duration_ms": 0},
             {"stage": "TSTR Copilot", "status": "skipped", "duration_ms": 0},
@@ -203,6 +455,7 @@ class ValidatorRepairAgent:
                 targets=targets,
                 scenario_labels=labels,
                 pipeline_stages=stages,
+                llm_fields_actual=llm_fields_actual,
                 scope_types=scope_types,
             )
             internal = report.pop("_internal", {})
@@ -297,6 +550,7 @@ class ValidatorRepairAgent:
             targets=targets,
             scenario_labels=labels,
             pipeline_stages=stages,
+            llm_fields_actual=llm_fields_actual,
             scope_types=scope_types,
         )
         report.pop("_internal", None)
@@ -495,6 +749,7 @@ class PipelineOrchestrator:
                 for key in list(plan.get("violation_type_counts", {}) if 'plan' in locals() else []):
                     pass
 
+        t_compose0 = time.time()
         plan = self.composer.run(
             packs=packs,
             control_classes=control_classes,
@@ -503,6 +758,7 @@ class PipelineOrchestrator:
             industry=industry,
             on_event=on_event,
         )
+        compose_duration_ms = int((time.time() - t_compose0) * 1000)
         if previous_feedback:
             weights = previous_feedback.get("violation_type_weights", {})
             if weights and plan.get("violation_type_counts"):
@@ -517,21 +773,25 @@ class PipelineOrchestrator:
                     boosted = {vtype: max(1, int(round(count * scale))) for vtype, count in boosted.items()}
                 plan["violation_type_counts"] = boosted
                 plan["feedback_weights"] = weights
+        t_gen0 = time.time()
         corpus = self.generator.run(plan, on_event=on_event)
+        gen_duration_ms = int((time.time() - t_gen0) * 1000)
         targets = {
             "audit_logs": n_logs,
             "violations": sum(plan["violation_type_counts"].values()),
             "qa_pairs": max(20, n_logs // 10),
-            "investigation_summaries": 2,
+            "llm_fields": corpus.get("llm_fields_target", 0),
         }
         corpus, report = self.validator.run(
             corpus,
             run_id=run_id,
             targets=targets,
+            llm_fields_actual=corpus.get("llm_fields_actual", 0),
             scope_types=control_classes or list({v["violation_type"] for v in corpus["violations"]}),
             on_event=on_event,
         )
 
+        t_tstr0 = time.time()
         tstr_metrics = self.tstr.run_tstr(
             corpus,
             packs=packs,
@@ -539,6 +799,7 @@ class PipelineOrchestrator:
             n_eval=min(1000, max(400, n_logs * 2)),
             on_event=on_event,
         )
+        tstr_duration_ms = int((time.time() - t_tstr0) * 1000)
         previous_lift = float(previous_feedback.get("last_recall_lift", 0.0)) if previous_feedback else 0.0
         current_lift = float(tstr_metrics.get("recall_lift", 0.0))
         feedback_update = update_feedback_state(
@@ -557,13 +818,17 @@ class PipelineOrchestrator:
             "next_violation_type_weights": feedback_update["next_violation_type_weights"],
             "improved": feedback_update["history_entry"]["improved"],
         }
-        # update stages
+        # Fill in the stages this orchestrator itself timed — build_validation_report() can't
+        # measure these since it doesn't call composer/generator/tstr; only Validator/Repair
+        # Loop are timed inside ValidatorRepairAgent, where they actually run.
         stages = report.get("pipeline_stages", [])
         while len(stages) < 6:
-            stages.append({"stage": "Output Datasets", "status": "completed", "duration_ms": 50})
+            stages.append({"stage": "Output Datasets", "status": "completed", "duration_ms": 0})
+        if len(stages) >= 2:
+            stages[0] = {"stage": "Scenario Composer", "status": "completed", "duration_ms": compose_duration_ms}
+            stages[1] = {"stage": "Log Generator", "status": "completed", "duration_ms": gen_duration_ms}
         if len(stages) >= 5:
-            stages[4] = {"stage": "TSTR Copilot", "status": "completed", "duration_ms": 800}
-            stages[5] = {"stage": "Output Datasets", "status": "completed", "duration_ms": 120}
+            stages[4] = {"stage": "TSTR Copilot", "status": "completed", "duration_ms": tstr_duration_ms}
         report["pipeline_stages"] = stages
 
         provider = get_provider()
@@ -581,6 +846,7 @@ class PipelineOrchestrator:
         if not control_classes:
             manifest["control_classes"] = list({v["violation_type"] for v in corpus["violations"]})
 
+        t_write0 = time.time()
         write_dataset_bundle(
             self.out_dir,
             audit_logs=corpus["audit_logs"],
@@ -589,6 +855,14 @@ class PipelineOrchestrator:
             validation_report=report,
             dataset_manifest=manifest,
         )
+        write_duration_ms = int((time.time() - t_write0) * 1000)
+        # The report written above necessarily still has this stage's *previous* duration —
+        # it can't know its own write time before the write happens. Correct it with one small
+        # follow-up atomic write of just the report (audit_logs/violations/qa_pairs/manifest are
+        # already correct and untouched — this doesn't re-write them).
+        stages[5] = {"stage": "Output Datasets", "status": "completed", "duration_ms": write_duration_ms}
+        report["pipeline_stages"] = stages
+        write_json(self.out_dir / "validation_report.json", {k: v for k, v in report.items() if not k.startswith("_")})
         _emit(on_event, {"stage": "complete", "message": "Pipeline complete", "run_id": run_id, "job_id": job_id})
         return {
             "run_id": run_id,
