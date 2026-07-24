@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -27,6 +29,40 @@ EventCb = Callable[[dict[str, Any]], None]
 def _emit(cb: EventCb | None, event: dict[str, Any]) -> None:
     if cb:
         cb(event)
+
+
+def _merge_transformer_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Fold offline cluster-trained transformer metrics into tstr_metrics.
+
+    The transformer scorers (DistilBERT, DeBERTa) are trained out-of-band on the
+    H100 cluster via `scripts/train_transformers.py` against a leakage-safe
+    pack split (SOX train / GDPR eval). That job writes
+    `transformer_metrics.json`; the live API never imports torch — it just reads
+    the JSON and merges it here so the dashboard can show a 4-way recall
+    comparison (rule / LR / DistilBERT / DeBERTa). Missing file => no-op.
+    """
+    ckpt_dir = os.getenv("SYNTH_TRANSFORMER_DIR", "")
+    if not ckpt_dir:
+        ckpt_dir = str(Path(os.getenv("SYNTH_DATA_DIR", "public/data")) / "checkpoints")
+    path = Path(ckpt_dir) / "transformer_metrics.json"
+    if not path.exists():
+        return metrics
+    try:
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return metrics
+    models = bundle.get("models") or {}
+    if not models:
+        return metrics
+    out = dict(metrics)
+    out["transformer_models"] = list(models.values())
+    out["transformer_best_model"] = bundle.get("best_model")
+    # Flatten the best model's fields onto the top-level dict for the UI.
+    best = models.get(out["transformer_best_model"] or "") or {}
+    for k, v in best.items():
+        if k not in out:
+            out[k] = v
+    return out
 
 
 class ScenarioComposerAgent:
@@ -311,6 +347,7 @@ class TSTRCopilotAgent:
             for r in eval_logs
         ]
         metrics = run_tstr(train_logs, train_labels, eval_logs, eval_labels)
+        metrics = _merge_transformer_metrics(metrics)
         _emit(
             on_event,
             {

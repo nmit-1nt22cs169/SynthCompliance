@@ -6,17 +6,44 @@ interface ProofTabProps {
   accent: string;
 }
 
+interface Bar {
+  label: string;
+  sublabel?: string;
+  value: number;
+  color: string;
+  best?: boolean;
+}
+
 export function ProofTab({ report, accent }: ProofTabProps) {
   const tstr = report.tstr_metrics;
   const golden = report.golden_set_fidelity;
   const baseline = tstr?.baseline_rare_recall ?? 0;
   const trained = tstr?.synthetic_trained_rare_recall ?? 0;
-  const maxRecall = Math.max(baseline, trained, 0.01);
-  const chartW = 520;
-  const chartH = 220;
+  const transformerModels = tstr?.transformer_models ?? [];
+  const bestModel = tstr?.transformer_best_model;
+
+  const bars: Bar[] = [
+    { label: 'Rule baseline', value: baseline, color: '#e0a83e' },
+    { label: 'Logistic reg.', sublabel: 'synthetic-trained', value: trained, color: accent },
+  ];
+  for (const m of transformerModels) {
+    const short = m.transformer_model.replace('microsoft/', '').replace('-base-uncased', '').replace('-v3-base', '-v3');
+    bars.push({
+      label: short,
+      sublabel: m.transformer_eval_pack ? `${m.transformer_train_pack}→${m.transformer_eval_pack}` : undefined,
+      value: m.transformer_rare_recall ?? 0,
+      color: short.includes('deberta') ? '#7c5cff' : '#3b82f6',
+      best: m.transformer_model === bestModel,
+    });
+  }
+
+  const maxRecall = Math.max(...bars.map((b) => b.value), 0.01);
+  const chartW = 520 + Math.max(0, bars.length - 2) * 120;
+  const chartH = 240;
   const padL = 48;
-  const padB = 36;
+  const padB = 48;
   const padT = 24;
+  const step = 120;
   const barW = 80;
   const plotH = chartH - padB - padT;
 
@@ -30,12 +57,17 @@ export function ProofTab({ report, accent }: ProofTabProps) {
       <div className="glass-panel proof-panel">
         <div className="panel-title">TSTR — Rare-Class Recall Lift</div>
         <p className="proof-desc">
-          Logistic regression trained on oversampled synthetic data ({((tstr?.train_violation_rate ?? 0) * 100).toFixed(0)}% violation rate),
-          evaluated on a realistic-ratio hold-out set ({((tstr?.eval_violation_rate ?? 0) * 100).toFixed(1)}% violation rate).
+          {tstr?.transformer_best_model
+            ? `4-way comparison on a leakage-safe pack split (train ${transformerModels[0]?.transformer_train_pack ?? 'SOX'} → eval ${transformerModels[0]?.transformer_eval_pack ?? 'GDPR'}, no shared violation types). ` +
+              `Logistic regression trained on oversampled synthetic SOX data (${((tstr?.train_violation_rate ?? 0) * 100).toFixed(0)}% violation rate); ` +
+              `transformers trained on the same SOX split, all evaluated on the held-out GDPR realistic-ratio set (${((transformerModels[0]?.transformer_eval_violation_rate ?? tstr?.eval_violation_rate ?? 0) * 100).toFixed(1)}% violation rate).`
+            : `Logistic regression trained on oversampled synthetic data (${((tstr?.train_violation_rate ?? 0) * 100).toFixed(0)}% violation rate), ` +
+              `evaluated on a realistic-ratio hold-out set (${((tstr?.eval_violation_rate ?? 0) * 100).toFixed(1)}% violation rate). ` +
+              `Run scripts/train_transformers.py on the GPU cluster to add the DistilBERT + DeBERTa bars.`}
         </p>
         <svg viewBox={`0 0 ${chartW} ${chartH}`} className="proof-chart">
           {bars.map((b, i) => {
-            const x = padL + i * 180;
+            const x = padL + i * step;
             const h = (b.value / maxRecall) * plotH;
             const y = padT + plotH - h;
             return (
@@ -47,6 +79,11 @@ export function ProofTab({ report, accent }: ProofTabProps) {
                 <text x={x + barW / 2} y={chartH - 10} textAnchor="middle" fontSize={12} fill="var(--text-secondary)">
                   {b.label}
                 </text>
+                {b.sublabel && (
+                  <text x={x + barW / 2} y={chartH - 5} textAnchor="middle" fontSize={10} fill="#9a9aa0">
+                    {b.sublabel}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -54,18 +91,26 @@ export function ProofTab({ report, accent }: ProofTabProps) {
         </svg>
         <div className="proof-metrics">
           <div className="proof-metric">
-            <span className="proof-metric-label">Recall lift</span>
-            <span className="proof-metric-value">+{((tstr?.recall_lift ?? 0) * 100).toFixed(0)} pts</span>
+            <span className="proof-metric-label">Recall lift (best vs rule)</span>
+            <span className="proof-metric-value">
+              {headlineLift >= 0 ? '+' : ''}{(headlineLift * 100).toFixed(0)} pts
+            </span>
           </div>
           <div className="proof-metric">
             <span className="proof-metric-label">Train / Eval size</span>
             <span className="proof-metric-value">
-              {tstr?.train_size ?? '—'} / {tstr?.eval_size ?? '—'}
+              {tstr?.transformer_best_model
+                ? `${transformerModels[0]?.transformer_train_size ?? tstr?.train_size ?? '—'} / ${transformerModels[0]?.transformer_eval_size ?? tstr?.eval_size ?? '—'}`
+                : `${tstr?.train_size ?? '—'} / ${tstr?.eval_size ?? '—'}`}
             </span>
           </div>
           <div className="proof-metric">
-            <span className="proof-metric-label">Model</span>
-            <span className="proof-metric-value">{tstr?.model ?? 'LogisticRegression'}</span>
+            <span className="proof-metric-label">Best model</span>
+            <span className="proof-metric-value">
+              {tstr?.transformer_best_model
+                ? tstr.transformer_best_model.replace('microsoft/', '').replace('-base-uncased', '').replace('-v3-base', '-v3')
+                : tstr?.model ?? 'LogisticRegression'}
+            </span>
           </div>
           <Badge status={tstr?.status === 'pass' ? 'pass' : 'warn'} />
         </div>

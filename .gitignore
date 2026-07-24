@@ -28,3 +28,16 @@ public/data/*
 !public/data/.gitkeep
 
 .env
+# Env files
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Transformer checkpoints (cluster-trained, rsync'd locally for demo)
+public/data/checkpoints/
