@@ -26,7 +26,7 @@ Open http://localhost:5173 — see **[docs/DEMO.md](./docs/DEMO.md)** for the fu
 | FastAPI + SSE jobs | `services/api/` |
 | 4 agents | `packages/agents/` |
 | Generators + Nemotron provider | `packages/generators/` |
-| 5 validators + TSTR + golden fidelity | `packages/validators/` |
+| 5 validators + TSTR + golden fidelity + persisted-model retraining | `packages/validators/` |
 | SOX+GDPR taxonomy + golden set | `packages/taxonomy/` |
 | Optional: DistilBERT/DeBERTa TSTR comparison (H100/Slurm, out-of-band) | `cluster/` — see [cluster/README.md](./cluster/README.md) |
 
@@ -78,3 +78,11 @@ Set `PRIVATE_API_KEY` for a hosted API (e.g. NVIDIA Build), or `USE_SELF_HOSTED=
 for a self-hosted NIM — this also covers a local Ollama instance, since Ollama serves an OpenAI-compatible
 API on `:11434/v1` and needs no code changes, just `LOCAL_BASE_URL=http://localhost:11434/v1` (or
 `http://host.docker.internal:11434/v1` from inside Docker) and `LOCAL_LLM_MODEL=<a pulled model>`.
+
+## Retraining (optional, `RETRAIN_MODEL=true`)
+
+When a run's recall lift doesn't improve on the previous run, the pipeline can retrain two things on
+the accumulated history instead of a fresh fit: the TSTR classifier (in-process, sklearn) and a
+retrain-target model that rephrases Copilot answers (LoRA fine-tune via `mlx-lm`, Apple-Silicon-only,
+run as a separate subprocess — `scripts/finetune_retrain_model.py`). See CLAUDE.md's "Persisted
+retraining" section for details and the manual-trigger API endpoints.

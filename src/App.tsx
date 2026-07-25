@@ -17,6 +17,9 @@ export interface JumpTarget {
   id: string;
 }
 
+// All tabs below are always mounted; visibility toggles via `display: none/block` rather than
+// conditional rendering, so switching tabs never wipes wizard fields, an in-flight job log, or
+// Copilot results (see CLAUDE.md "Frontend state patterns"). Don't reintroduce `{activeTab === 'x' && <Tab/>}`.
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [jobActive, setJobActive] = useState(false);

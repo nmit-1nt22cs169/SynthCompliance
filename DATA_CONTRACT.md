@@ -181,13 +181,18 @@ A single object summarizing one pipeline run and its validator results.
     }
   },
   "pipeline_stages": [
-    { "stage": "Policy Templates", "status": "completed", "duration_ms": 1840 },
-    { "stage": "Event Generator", "status": "completed", "duration_ms": 22110 },
-    { "stage": "Scenario Composer", "status": "completed", "duration_ms": 15430 },
-    { "stage": "Regulation Annotator", "status": "completed", "duration_ms": 9870 },
-    { "stage": "NeMo Curator", "status": "completed", "duration_ms": 31220 },
-    { "stage": "Output Datasets", "status": "completed", "duration_ms": 640 }
-  ]
+    { "stage": "Scenario Composer", "status": "completed", "duration_ms": 180 },
+    { "stage": "Log Generator", "status": "completed", "duration_ms": 22110 },
+    { "stage": "Validator", "status": "completed", "duration_ms": 340 },
+    { "stage": "Repair Loop", "status": "skipped", "duration_ms": 0 },
+    { "stage": "TSTR Copilot", "status": "completed", "duration_ms": 610 },
+    { "stage": "Model Retraining", "status": "skipped", "duration_ms": 0 },
+    { "stage": "Output Datasets", "status": "completed", "duration_ms": 40 }
+  ],
+  "golden_set_fidelity": { "label_fidelity_score": 92.5, "statistical_fidelity_score": 81.2, "status": "pass" },
+  "tstr_metrics": { "baseline_rare_recall": 0.31, "synthetic_trained_rare_recall": 0.78, "recall_lift": 0.47, "status": "pass" },
+  "repair_log": { "repaired_log_ids": [], "iterations": 1 },
+  "feedback_loop": { "new_violation_patterns": [], "next_violation_type_weights": {}, "improved": true }
 }
 ```
 
@@ -200,7 +205,11 @@ Top-level fields:
 | `dataset_targets` | object | Intended row counts. `llm_fields` is the number of audit-log/violation fields (`user_id`, `resource`, `action`, `outcome`, `sensitivity`, violation `explanation`) eligible to be written by the LLM this run — a property of dataset composition, not of whether a provider is configured. |
 | `dataset_actual` | object | Actual row counts produced this run. Same four keys. |
 | `validators` | object | Exactly the five keys below — no more, no fewer. |
-| `pipeline_stages` | array | One entry per stage, **in execution order**. `status` is one of `"completed"` \| `"running"` \| `"failed"` \| `"skipped"`. |
+| `pipeline_stages` | array | One entry per stage, **in execution order**: `Scenario Composer` → `Log Generator` → `Validator` → `Repair Loop` → `TSTR Copilot` → `Model Retraining` → `Output Datasets`. `status` is one of `"completed"` \| `"running"` \| `"failed"` \| `"skipped"`. |
+| `golden_set_fidelity` | object | Scores generated data against `packages/taxonomy/golden/` — see `GoldenSetFidelity` in `src/types.ts`. |
+| `tstr_metrics` | object | TSTR (Train Synthetic, Test Real) proof numbers, plus persisted-model retrain state when `RETRAIN_MODEL=true` and offline transformer comparison metrics when a cluster job has written `transformer_metrics.json` — see `TstrMetrics` in `src/types.ts` for the full (mostly optional) field set. |
+| `repair_log` | object | Which `audit_logs` rows the Repair Loop stage auto-corrected this run, and how many validate/repair iterations it took (max 3). |
+| `feedback_loop` | object | Cross-run adaptive state: violation types seen for the first time this run, the resulting per-type weight bias for the *next* run's scenario mix, and whether this run's `recall_lift` improved on the previous run. |
 
 `validators` — each of the four scored validators shares the same
 `status: "pass" | "warn" | "fail"` and a `flagged` array of example rows

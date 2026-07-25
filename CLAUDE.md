@@ -39,8 +39,10 @@ for a self-hosted NIM / local Ollama (Ollama serves an OpenAI-compatible API on 
 straight into the self-hosted path with no code changes). Offline deterministic generation works without
 any key, but only the structural fields get filled in — see below. `provider.py`'s `LLMProvider` is
 generic across all of these; a second model slot (`RETRAIN_*` vars, `get_retrain_provider()`, gated by
-the same `RETRAIN_MODEL` flag as the classifier retrain) reuses the same class for the target-
-architecture retrain-target/Copilot path (any LLM, not tied to a specific one — not yet built).
+the same `RETRAIN_MODEL` flag as the classifier retrain) reuses the same class for the retrain-target
+model that rephrases Copilot answers (any LLM, not tied to a specific one). Fine-tuning that model is a
+separate, Apple-Silicon-only path — `scripts/finetune_retrain_model.py` LoRA-tunes it via `mlx-lm` on
+accumulated `qa_pairs.jsonl` history and is never imported by the live API; see "Persisted retraining" below.
 
 ## Architecture
 
@@ -52,7 +54,7 @@ architecture retrain-target/Copilot path (any LLM, not tied to a specific one �
 | `services/api/app/main.py` | FastAPI gateway — job runner (background thread + in-memory `_jobs`/`_job_events`) + SSE + Copilot endpoint |
 | `packages/agents/synthcompliance_agents/pipeline.py` | The 4 agents + `PipelineOrchestrator` — this is the file to read first for backend changes |
 | `packages/generators/` | `corpus.py` (deterministic scaffold), `scenario_engine.py` (scenario mix -> counts), `provider.py` (Nemotron/OpenAI-compatible client), `io_atomic.py` (atomic file writes) |
-| `packages/validators/` | 5 structural validators + `tstr.py` (sklearn LogisticRegression) + `golden_fidelity.py` (scores against `packages/taxonomy/golden/`) + `report.py` (assembles `validation_report.json`) |
+| `packages/validators/` | 5 structural validators + `tstr.py` (sklearn LogisticRegression, incl. persisted-model retrain) + `tstr_transformer.py` (offline DistilBERT/DeBERTa scorer, cluster-only) + `golden_fidelity.py` (scores against `packages/taxonomy/golden/`) + `retrain_model.py` (LoRA fine-tune for the retrain-target model, `mlx-lm`-only) + `report.py` (assembles `validation_report.json`) |
 | `packages/taxonomy/` | Static SOX+GDPR taxonomy, control IDs, `roster.py` (50-user roster, 200-asset list) |
 
 ### Data flow: files, not sockets (except job progress)
@@ -103,6 +105,21 @@ anywhere; if you add a new stage, time it the same way rather than guessing a co
 - `dataset_targets.llm_fields` / `dataset_actual.llm_fields` in the report reflect how many fields were
   *eligible* vs. *actually written* by the LLM this run — computed unconditionally (even with no provider
   configured) so the dashboard KPI is honest about "0 written" vs. "nothing was eligible."
+
+### Persisted retraining (two independent models, both gated by `RETRAIN_MODEL=true`)
+
+- **Classifier**: when a run's recall doesn't improve on the prior run, `PipelineOrchestrator.run()` calls
+  `tstr.py`'s `retrain_persisted_model()`, which refits the LogisticRegression on the *cumulative* on-disk
+  training history (not just this run) and checkpoints it under `public/data/checkpoints/`. This runs
+  in-process — it's just sklearn — synchronously as part of the pipeline job.
+- **Retrain-target model** (rephrases Copilot answers in `TSTRCopilotAgent.answer_with_rephrase`): on the
+  same regression trigger, `main.py`'s `start_job` launches `scripts/finetune_retrain_model.py` as a
+  genuinely separate OS subprocess (own job bus, `POST /api/retrain-model/start` to trigger manually,
+  `GET /api/retrain-model/jobs/{id}/events` to watch it, `GET /api/retrain-model/status` for the latest
+  snapshot) — it LoRA-fine-tunes via `mlx-lm`, which is Apple-Silicon-only and must never be imported by
+  the live API process. A checkpoint is only promoted (`status: "active"`) if it beats the previously
+  active one on citation accuracy + groundedness; otherwise it's `"rejected"` and the rule-based answer
+  keeps being used.
 
 ### Frontend state patterns
 
