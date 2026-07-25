@@ -78,7 +78,10 @@ export interface ScenarioCoverage {
 
 export interface PipelineStage {
   stage: string;
-  status: 'completed' | 'running' | 'failed' | 'skipped';
+  // 'waiting' is frontend-only — the backend never writes it to validation_report.json, it's
+  // synthesized by deriveLiveStages() as the placeholder for a stage the live stream hasn't
+  // reached yet, distinct from 'skipped' (the pipeline reached it and chose not to run it).
+  status: 'completed' | 'running' | 'failed' | 'skipped' | 'waiting';
   duration_ms: number;
 }
 

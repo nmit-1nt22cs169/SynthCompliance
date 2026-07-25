@@ -261,15 +261,18 @@ const VALID_STAGE_STATUSES = new Set(['completed', 'running', 'failed', 'skipped
 
 /** Folds "stage_update" SSE events into the same PipelineStage[] shape as the on-disk report,
  * so the Pipeline Flow panel can render live during a run instead of showing stale data from
- * the previous run (report.pipeline_stages only exists once a run finishes writing files). */
+ * the previous run (report.pipeline_stages only exists once a run finishes writing files).
+ * Stages the stream hasn't reached yet stay 'waiting', not 'skipped' — 'skipped' is a real,
+ * backend-confirmed outcome (e.g. Repair Loop wasn't needed) and reads as misleading/finished
+ * if shown for a stage that simply hasn't started. */
 export function deriveLiveStages(jobEvents: JobEvent[]): PipelineStage[] {
   const byName = new Map<string, PipelineStage>(
-    CANONICAL_STAGES.map((stage) => [stage, { stage, status: 'skipped', duration_ms: 0 }])
+    CANONICAL_STAGES.map((stage) => [stage, { stage, status: 'waiting', duration_ms: 0 }])
   );
   for (const ev of jobEvents) {
     if (ev.stage !== 'stage_update' || !ev.pipeline_stage) continue;
     if (!byName.has(ev.pipeline_stage)) continue;
-    const status = VALID_STAGE_STATUSES.has(ev.status ?? '') ? (ev.status as PipelineStage['status']) : 'skipped';
+    const status = VALID_STAGE_STATUSES.has(ev.status ?? '') ? (ev.status as PipelineStage['status']) : 'waiting';
     byName.set(ev.pipeline_stage, {
       stage: ev.pipeline_stage,
       status,

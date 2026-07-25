@@ -510,7 +510,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       )}
 
       {displayStages && (
-        <div className="glass-panel panel-pad">
+        <div className="glass-panel panel-pad tab-panel">
           <div className="panel-title" style={{ marginBottom: 16 }}>
             Pipeline Flow
             {showLiveStages && (

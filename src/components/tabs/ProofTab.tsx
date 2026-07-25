@@ -105,7 +105,7 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
   return (
     <div>
       {jobActive && <StaleBanner />}
-      <div className="proof-grid">
+      <div className="proof-grid tab-panel">
         <div className="glass-panel proof-panel">
           <div className="panel-title">TSTR — Rare-Class Recall Lift</div>
           <p className="proof-desc">
@@ -120,7 +120,9 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
           <svg viewBox={`0 0 ${chartW} ${chartH}`} className="proof-chart">
             {bars.map((b, i) => {
               const x = padL + i * step;
-              const h = (b.value / maxRecall) * plotH;
+              // A real 0% measurement should still read as "measured zero," not "nothing
+              // rendered" — a thin sliver keeps the bar (and its label) visible and legible.
+              const h = Math.max((b.value / maxRecall) * plotH, 3);
               const y = padT + plotH - h;
               return (
                 <g key={b.label}>
@@ -200,7 +202,7 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
       </div>
 
       {tstr?.confusion_matrix_after && (
-        <div className="glass-panel panel-pad">
+        <div className="glass-panel panel-pad tab-panel">
           <div className="panel-title">
             {tstr.retrained
               ? `Retrain Impact — Before vs After (v${tstr.model_version}, ${tstr.cumulative_train_size?.toLocaleString()} cumulative rows)`
@@ -244,7 +246,7 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
       )}
 
       {retrainTrend && (
-        <div className="glass-panel panel-pad">
+        <div className="glass-panel panel-pad tab-panel">
           <div className="panel-title">Retrain Trend — Recall Across Model Versions</div>
           <p className="proof-desc">
             Recall of the persisted classifier at each retrain, evaluated on that run's eval set —
