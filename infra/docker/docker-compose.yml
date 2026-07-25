@@ -12,6 +12,7 @@ services:
       - NVIDIA_BASE_URL=${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
       - NIM_BASE_URL=${NIM_BASE_URL:-http://nim:8000/v1}
       - NEMOTRON_MODEL=${NEMOTRON_MODEL:-nvidia/nemotron-3-super}
+      - RETRAIN_MODEL=${RETRAIN_MODEL:-false}
     volumes:
       - ../public/data:/app/public/data
 

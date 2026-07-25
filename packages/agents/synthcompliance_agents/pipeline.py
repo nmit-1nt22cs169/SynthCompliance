@@ -22,7 +22,7 @@ from synthcompliance_generators.scenario_engine import (
 from synthcompliance_taxonomy.controls import TAXONOMY
 from synthcompliance_taxonomy.roster import ASSET_LIST, USER_ROSTER
 from synthcompliance_validators.report import build_validation_report
-from synthcompliance_validators.tstr import run_tstr
+from synthcompliance_validators.tstr import retrain_persisted_model, run_tstr
 
 EventCb = Callable[[dict[str, Any]], None]
 
@@ -30,6 +30,15 @@ EventCb = Callable[[dict[str, Any]], None]
 def _emit(cb: EventCb | None, event: dict[str, Any]) -> None:
     if cb:
         cb(event)
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    """Matches provider.py's helper of the same name — no central config module in this repo,
+    env vars are read ad hoc at point of use."""
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _merge_transformer_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
@@ -441,6 +450,10 @@ class ValidatorRepairAgent:
             {"stage": "Validator", "status": "running", "duration_ms": 0},
             {"stage": "Repair Loop", "status": "skipped", "duration_ms": 0},
             {"stage": "TSTR Copilot", "status": "skipped", "duration_ms": 0},
+            # "skipped" unless RETRAIN_MODEL=true and this run's recall regressed — see
+            # PipelineOrchestrator.run(). Always present so downstream stages[N] indices stay
+            # stable regardless of whether the retrain actually fires.
+            {"stage": "Model Retraining", "status": "skipped", "duration_ms": 0},
             {"stage": "Output Datasets", "status": "skipped", "duration_ms": 0},
         ]
 
@@ -575,7 +588,11 @@ class TSTRCopilotAgent:
         control_classes: list[str] | None,
         n_eval: int = 400,
         on_event: EventCb | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[int], list[dict[str, Any]], list[int]]:
+        """Returns (metrics, train_logs, train_labels, eval_logs, eval_labels) — the raw
+        logs/labels are needed by the caller for a possible persisted-model retrain step
+        (see PipelineOrchestrator.run) but are never embedded in `metrics` itself, since that
+        dict is written verbatim into validation_report.json."""
         _emit(on_event, {"stage": "tstr", "message": "Building realistic-ratio EVAL set"})
         engine = ScenarioEngine(
             packs=packs,
@@ -610,7 +627,7 @@ class TSTRCopilotAgent:
                 "tstr": metrics,
             },
         )
-        return metrics
+        return metrics, train_logs, train_labels, eval_logs, eval_labels
 
     def answer(
         self,
@@ -743,12 +760,6 @@ class PipelineOrchestrator:
             import json
             previous_feedback = json.loads(feedback_state_path.read_text(encoding="utf-8"))
 
-        if previous_feedback:
-            weights = previous_feedback.get("violation_type_weights", {})
-            if weights:
-                for key in list(plan.get("violation_type_counts", {}) if 'plan' in locals() else []):
-                    pass
-
         t_compose0 = time.time()
         plan = self.composer.run(
             packs=packs,
@@ -792,7 +803,7 @@ class PipelineOrchestrator:
         )
 
         t_tstr0 = time.time()
-        tstr_metrics = self.tstr.run_tstr(
+        tstr_metrics, tstr_train_logs, tstr_train_labels, tstr_eval_logs, tstr_eval_labels = self.tstr.run_tstr(
             corpus,
             packs=packs,
             control_classes=control_classes,
@@ -812,6 +823,32 @@ class PipelineOrchestrator:
             status="completed",
             previous_state=previous_feedback,
         )
+
+        # Persisted retraining: only when explicitly opted in AND this run's recall regressed
+        # or failed to improve vs. the last run (same `improved` comparison feedback.py already
+        # makes for scenario-mix reweighting). Unlike run_tstr()'s from-scratch fit-and-discard
+        # model above, this refits over the *cumulative* on-disk training history so the
+        # persisted model actually grows with more data across runs — see tstr.py's
+        # retrain_persisted_model() docstring for why that (not warm_start) is what makes this
+        # "learn" (logistic regression's loss is convex: warm_start only affects solver
+        # iteration count, not the fitted result for a given dataset).
+        t_retrain0 = time.time()
+        improved = feedback_update["history_entry"]["improved"]
+        if _bool_env("RETRAIN_MODEL", False) and not improved:
+            retrain_result = retrain_persisted_model(
+                self.out_dir / "checkpoints",
+                tstr_train_logs,
+                tstr_train_labels,
+                tstr_eval_logs,
+                tstr_eval_labels,
+            )
+            tstr_metrics.update(retrain_result)
+            retrain_stage_status = "completed"
+        else:
+            tstr_metrics["retrained"] = False
+            retrain_stage_status = "skipped"
+        retrain_duration_ms = int((time.time() - t_retrain0) * 1000)
+
         report["tstr_metrics"] = tstr_metrics
         report["feedback_loop"] = {
             "new_violation_patterns": feedback_update["new_violation_patterns"],
@@ -822,13 +859,15 @@ class PipelineOrchestrator:
         # measure these since it doesn't call composer/generator/tstr; only Validator/Repair
         # Loop are timed inside ValidatorRepairAgent, where they actually run.
         stages = report.get("pipeline_stages", [])
-        while len(stages) < 6:
+        while len(stages) < 7:
             stages.append({"stage": "Output Datasets", "status": "completed", "duration_ms": 0})
         if len(stages) >= 2:
             stages[0] = {"stage": "Scenario Composer", "status": "completed", "duration_ms": compose_duration_ms}
             stages[1] = {"stage": "Log Generator", "status": "completed", "duration_ms": gen_duration_ms}
         if len(stages) >= 5:
             stages[4] = {"stage": "TSTR Copilot", "status": "completed", "duration_ms": tstr_duration_ms}
+        if len(stages) >= 6:
+            stages[5] = {"stage": "Model Retraining", "status": retrain_stage_status, "duration_ms": retrain_duration_ms}
         report["pipeline_stages"] = stages
 
         provider = get_provider()
@@ -860,7 +899,7 @@ class PipelineOrchestrator:
         # it can't know its own write time before the write happens. Correct it with one small
         # follow-up atomic write of just the report (audit_logs/violations/qa_pairs/manifest are
         # already correct and untouched — this doesn't re-write them).
-        stages[5] = {"stage": "Output Datasets", "status": "completed", "duration_ms": write_duration_ms}
+        stages[6] = {"stage": "Output Datasets", "status": "completed", "duration_ms": write_duration_ms}
         report["pipeline_stages"] = stages
         write_json(self.out_dir / "validation_report.json", {k: v for k, v in report.items() if not k.startswith("_")})
         _emit(on_event, {"stage": "complete", "message": "Pipeline complete", "run_id": run_id, "job_id": job_id})

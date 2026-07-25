@@ -166,7 +166,8 @@ const STAGE_SHORT: Record<string, string> = {
   'Log Generator': 'Generator',
   'Validator': 'Validator',
   'Repair Loop': 'Repair',
-  'TSTR Copilot': 'TSTR'
+  'TSTR Copilot': 'TSTR',
+  'Model Retraining': 'Retrain'
 };
 
 export function deriveLineChart(report: ValidationReport): LineChart {

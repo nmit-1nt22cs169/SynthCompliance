@@ -94,6 +94,20 @@ export interface GoldenSetFidelity {
   notes?: string;
 }
 
+export interface ConfusionMatrix {
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+}
+
+export interface RetrainMetrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  accuracy: number;
+}
+
 export interface TstrMetrics {
   baseline_rare_recall: number;
   synthetic_trained_rare_recall: number;
@@ -105,6 +119,20 @@ export interface TstrMetrics {
   status?: string;
   model?: string;
   notes?: string;
+  // Persisted-model retraining (RETRAIN_MODEL=true, only fires when recall regressed/didn't
+  // improve vs. the previous run — see feedback_loop.improved). Absent/false when disabled
+  // or not triggered this run.
+  retrained?: boolean;
+  model_version?: number;
+  cumulative_train_size?: number;
+  trained_at?: string;
+  post_retrain_recall?: number;
+  // Before = the previous persisted checkpoint (if any) evaluated on this run's eval set;
+  // null on the very first retrain, since there's no prior checkpoint to compare against.
+  confusion_matrix_before?: ConfusionMatrix | null;
+  confusion_matrix_after?: ConfusionMatrix;
+  metrics_before?: RetrainMetrics | null;
+  metrics_after?: RetrainMetrics;
   // Transformer scorers (offline cluster-trained via scripts/train_transformers.py,
   // leakage-safe SOX-train / GDPR-eval pack split). Absent if no checkpoint run.
   transformer_models?: TransformerModelMetrics[];

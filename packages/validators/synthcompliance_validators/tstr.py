@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import recall_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.pipeline import Pipeline
 
 FEATURE_KEYS = ("action", "role", "sensitivity", "system", "outcome")
+# Bounds retrain cost as history grows across the life of a demo/deployment —
+# oldest rows are trimmed first once this cap is hit.
+MAX_TRAINING_HISTORY_ROWS = 20_000
+HISTORY_FILENAME = "tstr_training_history.jsonl"
+MODEL_FILENAME = "tstr_model.joblib"
+META_FILENAME = "tstr_model_meta.json"
 
 
 def _row_features(row: dict[str, Any]) -> dict[str, Any]:
@@ -25,6 +37,15 @@ def _row_features(row: dict[str, Any]) -> dict[str, Any]:
     feats["hour"] = hour
     feats["is_denied"] = 1 if row.get("outcome") == "denied" else 0
     return feats
+
+
+def _build_pipeline() -> Pipeline:
+    return Pipeline(
+        [
+            ("vec", DictVectorizer(sparse=False)),
+            ("clf", LogisticRegression(max_iter=800, class_weight="balanced", solver="lbfgs")),
+        ]
+    )
 
 
 def _baseline_rules(rows: list[dict[str, Any]]) -> np.ndarray:
@@ -77,12 +98,7 @@ def run_tstr(
     baseline_preds = _baseline_rules(eval_logs)
     baseline_recall = float(recall_score(y_eval, baseline_preds, zero_division=0)) if y_eval.sum() else 0.0
 
-    synth_pipe = Pipeline(
-        [
-            ("vec", DictVectorizer(sparse=False)),
-            ("clf", LogisticRegression(max_iter=800, class_weight="balanced", solver="lbfgs")),
-        ]
-    )
+    synth_pipe = _build_pipeline()
     synth_pipe.fit(X_train, y_train)
     synth_preds = synth_pipe.predict(X_eval)
     synth_recall = float(recall_score(y_eval, synth_preds, zero_division=0)) if y_eval.sum() else 0.0
@@ -98,4 +114,150 @@ def run_tstr(
         "status": "pass" if synth_recall > baseline_recall else "warn",
         "model": "sklearn.linear_model.LogisticRegression",
         "baseline_model": "manual_triage_rules",
+    }
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def load_training_history(checkpoint_dir: Path | str) -> tuple[list[dict[str, Any]], list[int]]:
+    """Read every (row, label) pair persisted by prior retrains, oldest first."""
+    path = Path(checkpoint_dir) / HISTORY_FILENAME
+    if not path.exists():
+        return [], []
+    rows: list[dict[str, Any]] = []
+    labels: list[int] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        rows.append(entry["row"])
+        labels.append(int(entry["label"]))
+    return rows, labels
+
+
+def append_training_history(
+    checkpoint_dir: Path | str,
+    rows: list[dict[str, Any]],
+    labels: list[int],
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """Append this run's training rows to persisted history, capped to the most recent
+    MAX_TRAINING_HISTORY_ROWS (oldest trimmed first). Returns the resulting cumulative set."""
+    prev_rows, prev_labels = load_training_history(checkpoint_dir)
+    all_rows = prev_rows + rows
+    all_labels = prev_labels + labels
+    if len(all_rows) > MAX_TRAINING_HISTORY_ROWS:
+        all_rows = all_rows[-MAX_TRAINING_HISTORY_ROWS:]
+        all_labels = all_labels[-MAX_TRAINING_HISTORY_ROWS:]
+
+    path = Path(checkpoint_dir) / HISTORY_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for row, label in zip(all_rows, all_labels):
+                f.write(json.dumps({"row": row, "label": label}, ensure_ascii=False) + "\n")
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+    return all_rows, all_labels
+
+
+def _evaluate(pipe: Pipeline, X_eval: list[dict[str, Any]], y_eval: np.ndarray) -> dict[str, Any]:
+    """Confusion matrix + precision/recall/F1/accuracy for one fitted pipeline on one eval set.
+    `labels=[0, 1]` forces a stable 2x2 shape even if a class is entirely absent from y_eval."""
+    preds = pipe.predict(X_eval)
+    tn, fp, fn, tp = confusion_matrix(y_eval, preds, labels=[0, 1]).ravel()
+    return {
+        "confusion_matrix": {"tp": int(tp), "fp": int(fp), "tn": int(tn), "fn": int(fn)},
+        "metrics": {
+            "precision": round(float(precision_score(y_eval, preds, zero_division=0)), 4),
+            "recall": round(float(recall_score(y_eval, preds, zero_division=0)), 4),
+            "f1": round(float(f1_score(y_eval, preds, zero_division=0)), 4),
+            "accuracy": round(float(accuracy_score(y_eval, preds)), 4),
+        },
+    }
+
+
+def retrain_persisted_model(
+    checkpoint_dir: Path | str,
+    train_logs: list[dict[str, Any]],
+    train_labels: list[int],
+    eval_logs: list[dict[str, Any]],
+    eval_labels: list[int],
+) -> dict[str, Any]:
+    """Persist this run's training rows to the on-disk history, refit LogisticRegression on the
+    full accumulated set (not just this run), and checkpoint the result.
+
+    Logistic regression's loss is convex, so `warm_start` only affects solver iteration count,
+    not the fitted result for a given dataset — the thing that actually makes this "learn" over
+    time is the growing accumulated training set, not carrying over prior coefficients.
+
+    Captures a before/after comparison: "before" is the *previous* checkpoint (if any),
+    evaluated on this run's eval set — not last run's ephemeral run_tstr() model — so the diff
+    reflects model change, not eval-data drift. None on the very first-ever retrain, since
+    there's no prior persisted model to compare against.
+    """
+    checkpoint_dir = Path(checkpoint_dir)
+    X_eval = [_row_features(r) for r in eval_logs]
+    y_eval = np.array(eval_labels)
+
+    model_path = checkpoint_dir / MODEL_FILENAME
+    before: dict[str, Any] | None = None
+    if model_path.exists():
+        try:
+            old_pipe = joblib.load(model_path)
+            before = _evaluate(old_pipe, X_eval, y_eval)
+        except Exception:
+            before = None
+
+    cumulative_rows, cumulative_labels = append_training_history(checkpoint_dir, train_logs, train_labels)
+
+    meta_path = checkpoint_dir / META_FILENAME
+    prev_meta: dict[str, Any] = {}
+    if meta_path.exists():
+        try:
+            prev_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            prev_meta = {}
+    model_version = int(prev_meta.get("model_version", 0)) + 1
+
+    pipe = _build_pipeline()
+    X_train = [_row_features(r) for r in cumulative_rows]
+    y_train = np.array(cumulative_labels)
+    pipe.fit(X_train, y_train)
+    after = _evaluate(pipe, X_eval, y_eval)
+
+    joblib.dump(pipe, model_path)
+    trained_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = {
+        "model_version": model_version,
+        "trained_at": trained_at,
+        "cumulative_train_size": len(cumulative_rows),
+        "confusion_matrix_after": after["confusion_matrix"],
+        "metrics_after": after["metrics"],
+    }
+    _write_json_atomic(meta_path, meta)
+
+    return {
+        "retrained": True,
+        "model_version": model_version,
+        "cumulative_train_size": len(cumulative_rows),
+        "trained_at": trained_at,
+        "post_retrain_recall": after["metrics"]["recall"],
+        "confusion_matrix_before": before["confusion_matrix"] if before else None,
+        "confusion_matrix_after": after["confusion_matrix"],
+        "metrics_before": before["metrics"] if before else None,
+        "metrics_after": after["metrics"],
     }

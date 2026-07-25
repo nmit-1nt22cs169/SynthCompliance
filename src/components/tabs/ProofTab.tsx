@@ -1,6 +1,6 @@
 import { Badge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
-import type { ValidationReport } from '../../types';
+import type { ConfusionMatrix, ValidationReport } from '../../types';
 
 interface ProofTabProps {
   report: ValidationReport;
@@ -14,6 +14,44 @@ interface Bar {
   value: number;
   color: string;
   best?: boolean;
+}
+
+// Mirrors OverviewTab.tsx's riskColor() — diagonal (correct) cells tinted green, off-diagonal
+// (errors) tinted red, alpha scaled by each cell's share of the eval set.
+function matrixCellColor(value: number, total: number, correct: boolean): string {
+  if (value === 0 || total === 0) return 'transparent';
+  const t = Math.min(value / total, 1);
+  return correct ? `rgba(62, 207, 142, ${0.1 + t * 0.6})` : `rgba(224, 85, 90, ${0.1 + t * 0.6})`;
+}
+
+function ConfusionMatrixTable({ title, matrix }: { title: string; matrix: ConfusionMatrix }) {
+  const total = matrix.tp + matrix.fp + matrix.tn + matrix.fn;
+  return (
+    <div className="matrix-wrap">
+      <div className="proof-desc" style={{ marginBottom: 4, fontWeight: 600 }}>{title}</div>
+      <table className="data-table matrix-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Predicted violation</th>
+            <th>Predicted normal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Actual violation</td>
+            <td className="matrix-cell" style={{ background: matrixCellColor(matrix.tp, total, true) }}>{matrix.tp}</td>
+            <td className="matrix-cell" style={{ background: matrixCellColor(matrix.fn, total, false) }}>{matrix.fn}</td>
+          </tr>
+          <tr>
+            <td>Actual normal</td>
+            <td className="matrix-cell" style={{ background: matrixCellColor(matrix.fp, total, false) }}>{matrix.fp}</td>
+            <td className="matrix-cell" style={{ background: matrixCellColor(matrix.tn, total, true) }}>{matrix.tn}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
@@ -156,6 +194,41 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
           </div>
         </div>
       </div>
+
+      {tstr?.confusion_matrix_after && (
+        <div className="glass-panel panel-pad">
+          <div className="panel-title">
+            Retrain Impact — Before vs After (v{tstr.model_version}, {tstr.cumulative_train_size?.toLocaleString()} cumulative rows)
+          </div>
+          <div className="proof-grid">
+            {tstr.confusion_matrix_before ? (
+              <ConfusionMatrixTable title="Before this retrain" matrix={tstr.confusion_matrix_before} />
+            ) : (
+              <div className="proof-desc">First retrain — no prior persisted model to compare.</div>
+            )}
+            <ConfusionMatrixTable title="After this retrain" matrix={tstr.confusion_matrix_after} />
+          </div>
+          {tstr.metrics_after && (
+            <div className="proof-metrics" style={{ marginTop: 16 }}>
+              {(['precision', 'recall', 'f1', 'accuracy'] as const).map((key) => {
+                const after = tstr.metrics_after![key];
+                const before = tstr.metrics_before?.[key];
+                const delta = before != null ? after - before : null;
+                return (
+                  <div className="proof-metric" key={key}>
+                    <span className="proof-metric-label">{key}</span>
+                    <span className="proof-metric-value">
+                      {before != null ? `${before.toFixed(2)} → ` : ''}
+                      {after.toFixed(2)}
+                      {delta != null ? ` (${delta >= 0 ? '+' : ''}${delta.toFixed(2)})` : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

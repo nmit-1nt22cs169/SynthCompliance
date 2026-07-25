@@ -5,7 +5,15 @@
       "Bash(git commit -m ' *)",
       "Bash(git add *)",
       "Bash(npm run *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(kill 24137)",
+      "Bash(lsof -iTCP:8000 -sTCP:LISTEN -n -P)",
+      "Bash(export USE_SELF_HOSTED=true)",
+      "Bash(export NIM_BASE_URL=http://localhost:11434/v1)",
+      "Bash(export NIM_API_KEY=ollama)",
+      "Bash(export NEMOTRON_MODEL=nemotron-3-nano:4b)",
+      "Bash(export SYNTH_DATA_DIR=./public/data)",
+      "Bash(curl -s http://localhost:8000/api/health)"
     ]
   }
 }
