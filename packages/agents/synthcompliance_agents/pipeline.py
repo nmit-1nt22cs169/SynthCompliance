@@ -13,7 +13,7 @@ from typing import Any, Callable
 from synthcompliance_agents.feedback import update_feedback_state
 from synthcompliance_generators.corpus import generate_corpus
 from synthcompliance_generators.io_atomic import write_dataset_bundle, write_json
-from synthcompliance_generators.provider import get_provider
+from synthcompliance_generators.provider import get_provider, get_retrain_provider
 from synthcompliance_generators.scenario_engine import (
     EVAL_TARGETS,
     TRAIN_TARGETS,
@@ -22,6 +22,7 @@ from synthcompliance_generators.scenario_engine import (
 from synthcompliance_taxonomy.controls import TAXONOMY
 from synthcompliance_taxonomy.roster import ASSET_LIST, USER_ROSTER
 from synthcompliance_validators.report import build_validation_report
+from synthcompliance_validators.retrain_model import load_latest_retrain_model_snapshot
 from synthcompliance_validators.tstr import load_latest_retrain_snapshot, retrain_persisted_model, run_tstr
 
 EventCb = Callable[[dict[str, Any]], None]
@@ -769,6 +770,45 @@ class TSTRCopilotAgent:
             "citations": citations,
             "grounding": "high" if citations else "low",
         }
+
+    def answer_with_rephrase(
+        self,
+        query: str,
+        *,
+        audit_logs: list[dict[str, Any]],
+        violations: list[dict[str, Any]],
+        checkpoint_dir: Path,
+    ) -> dict[str, Any]:
+        """Same grounding/citations as answer() — that logic is unchanged and stays the sole
+        source of truth for which violations match and what gets cited. If (and only if) an
+        "active" retrain-target checkpoint exists, asks it to rewrite the answer text in more
+        natural language, never touching citations. Falls back to the untouched rule-based answer
+        on any failure, unavailable provider, or no active checkpoint — same discipline
+        LogGeneratorAgent already uses for per-batch fallback to deterministic content."""
+        result = self.answer(query, audit_logs=audit_logs, violations=violations)
+        result["model_backend"] = "rule_based"
+
+        snapshot = load_latest_retrain_model_snapshot(checkpoint_dir)
+        if not snapshot or snapshot.get("status") != "active":
+            return result
+
+        provider = get_retrain_provider()
+        if not provider.available:
+            return result
+
+        rephrased = provider.complete_json(
+            system=(
+                "Rewrite the given compliance answer in clear natural language. Keep every "
+                "log_id, control_id, and cited fact exactly as given — do not add, remove, or "
+                "invent any citation. Return strict JSON {\"answer\": \"...\"}, no extra "
+                "commentary."
+            ),
+            user=json.dumps({"answer": result["answer"], "citations": result["citations"]}),
+        )
+        if isinstance(rephrased, dict) and isinstance(rephrased.get("answer"), str) and rephrased["answer"].strip():
+            result["answer"] = rephrased["answer"]
+            result["model_backend"] = f"retrain-model-v{snapshot.get('model_version')}"
+        return result
 
 
 class PipelineOrchestrator:

@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { Breadcrumb } from '../Breadcrumb';
 import { Badge, SeverityBadge } from '../Badge';
+import { InfoTip } from '../InfoTip';
 import { StaleBanner } from '../StaleBanner';
 import {
   deriveCoverage,
-  deriveHourlyActivity,
   deriveKpis,
   deriveRiskMatrix,
   deriveSeverityCounts,
@@ -34,7 +34,6 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
   const validators = deriveValidators(report);
   const severityCounts = useMemo(() => deriveSeverityCounts(violations), [violations]);
   const weightBars = deriveWeightBars(report.feedback_loop?.next_violation_type_weights);
-  const hourly = useMemo(() => deriveHourlyActivity(auditLogs), [auditLogs]);
   const riskMatrix = useMemo(() => deriveRiskMatrix(auditLogs, violations), [auditLogs, violations]);
 
   const violationRatio = total > 0
@@ -45,11 +44,27 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
   const repairedRows = report.repair_log?.repaired_log_ids ?? [];
 
   const feedback = report.feedback_loop;
-  const juryHighlights = [
-    { label: 'Rare-class recall lift', value: `${recallLift}%`, detail: 'TSTR proof for judges' },
-    { label: 'Golden fidelity', value: `${goldenScore}%`, detail: 'Taxonomy match against seeded golden records' },
-    { label: 'Repaired rows', value: `${repairedRows.length}`, detail: 'Rows corrected in the repair loop' },
-    { label: 'Violation ratio', value: `${violationRatio}%`, detail: 'Oversampled compliance edge cases' }
+  const proofHighlights = [
+    {
+      label: 'Rare-class recall lift',
+      value: `${recallLift}%`,
+      detail: 'How much better a model trained on synthetic data is at catching rare violations vs. a simple rule-based check.'
+    },
+    {
+      label: 'Golden fidelity',
+      value: `${goldenScore}%`,
+      detail: 'How closely generated records match hand-authored reference examples.'
+    },
+    {
+      label: 'Repaired rows',
+      value: `${repairedRows.length}`,
+      detail: 'Rows the validator found invalid and auto-corrected before this run finished.'
+    },
+    {
+      label: 'Violation ratio',
+      value: `${violationRatio}%`,
+      detail: 'Share of logs that are violations — deliberately higher than real-world rates so the model has enough rare cases to learn from.'
+    }
   ];
 
   return (
@@ -109,25 +124,8 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
 
       <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 12 }}>
-          Activity by Hour (UTC)
-        </div>
-        <div className="hour-heat-row">
-          {hourly.map((h) => (
-            <div
-              key={h.hour}
-              className="hour-heat-cell"
-              style={{ background: h.count > 0 ? `rgba(124, 140, 255, ${0.15 + (h.pct / 100) * 0.65})` : 'rgba(0,0,0,0.03)' }}
-              title={`${h.hour}:00 — ${h.count} logs`}
-            >
-              <span className="hour-heat-label">{h.hour}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="glass-panel tab-panel panel-pad">
-        <div className="panel-title" style={{ marginBottom: 12 }}>
           Adaptive Feedback Loop
+          <InfoTip text="Findings from each run are stored and bias what the next run generates more of." />
         </div>
         <div className="validation-detail" style={{ marginBottom: 12 }}>
           Newly detected patterns are stored after each run and reweighted in the next generation pass.
@@ -140,7 +138,10 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
           </div>
           <div className="kpi-card">
             <div className="kpi-value">{feedback?.improved ? 'improving' : 'monitoring'}</div>
-            <div className="kpi-label">TSTR feedback state</div>
+            <div className="kpi-label">
+              TSTR feedback state
+              <InfoTip text="'Improving' = this run's recall lift beat the previous run. 'Monitoring' = not yet — still collecting runs." />
+            </div>
             <div className="validation-detail">Tracks whether the latest run improved recall lift versus the previous run.</div>
           </div>
         </div>
@@ -164,10 +165,11 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
 
       <div className="glass-panel tab-panel panel-pad">
         <div className="panel-title" style={{ marginBottom: 12 }}>
-          Jury Highlights
+          Key Proof Metrics
+          <InfoTip text="TSTR = Train Synthetic, Test Real: prove synthetic data is useful by training a model on it and testing against real-world-shaped data." />
         </div>
         <div className="kpi-grid">
-          {juryHighlights.map((item) => (
+          {proofHighlights.map((item) => (
             <div className="kpi-card" key={item.label}>
               <div className="kpi-value">{item.value}</div>
               <div className="kpi-label">{item.label}</div>
@@ -188,7 +190,10 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
 
       {riskMatrix.roles.length > 0 && (
         <div className="glass-panel tab-panel panel-pad">
-          <div className="panel-title">Risk Matrix — Role × Sensitivity (violation rate %)</div>
+          <div className="panel-title">
+            Risk Matrix — Role × Sensitivity (violation rate %)
+            <InfoTip text="% of that role's logs against that sensitivity level which were violations — darker = riskier combination." />
+          </div>
           <div className="matrix-wrap">
             <table className="data-table matrix-table">
               <thead>

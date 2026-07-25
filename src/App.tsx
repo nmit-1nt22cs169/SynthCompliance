@@ -47,7 +47,6 @@ function App() {
       <div style={{ display: activeTab === 'pipeline' ? 'block' : 'none' }}>
         <PipelineTab
           report={report}
-          accent={ACCENT}
           onJobActiveChange={setJobActive}
           onJobComplete={forceRefresh}
         />

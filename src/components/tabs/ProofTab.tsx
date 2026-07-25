@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Badge } from '../Badge';
+import { InfoTip } from '../InfoTip';
 import { StaleBanner } from '../StaleBanner';
-import { deriveRetrainTrend } from '../../lib/derive';
+import { fetchRetrainModelStatus, type RetrainModelSnapshot } from '../../lib/api';
+import { deriveRetrainModelTrend, deriveRetrainTrend } from '../../lib/derive';
 import type { ConfusionMatrix, ValidationReport } from '../../types';
 
 interface ProofTabProps {
@@ -87,6 +90,17 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
   const retrainHistory = tstr?.retrain_history ?? [];
   const retrainTrend = retrainHistory.length >= 2 ? deriveRetrainTrend(retrainHistory) : null;
 
+  // Retrain-target model status isn't part of the polled report — it's a separate model slot
+  // fetched from its own endpoint, same pattern as PipelineTab's Backend Configuration panel.
+  const [retrainModelSnapshot, setRetrainModelSnapshot] = useState<RetrainModelSnapshot | null>(null);
+  useEffect(() => {
+    fetchRetrainModelStatus()
+      .then((r) => setRetrainModelSnapshot(r.snapshot))
+      .catch(() => setRetrainModelSnapshot(null));
+  }, []);
+  const retrainModelHistory = retrainModelSnapshot?.history ?? [];
+  const retrainModelTrend = retrainModelHistory.length >= 2 ? deriveRetrainModelTrend(retrainModelHistory) : null;
+
   const maxRecall = Math.max(...bars.map((b) => b.value), 0.01);
   const bestValue = Math.max(...bars.map((b) => b.value));
   const headlineLift = bestValue - baseline;
@@ -107,7 +121,10 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
       {jobActive && <StaleBanner />}
       <div className="proof-grid tab-panel">
         <div className="glass-panel proof-panel">
-          <div className="panel-title">TSTR — Rare-Class Recall Lift</div>
+          <div className="panel-title">
+            TSTR — Rare-Class Recall Lift
+            <InfoTip text="TSTR (Train Synthetic, Test Real). Bars show recall on rare violation classes — the % of true violations each model actually catches — from a simple rule baseline up to trained models. Higher is better." />
+          </div>
           <p className="proof-desc">
             {tstr?.transformer_best_model
               ? `4-way comparison on a leakage-safe pack split (train ${transformerModels[0]?.transformer_train_pack ?? 'SOX'} → eval ${transformerModels[0]?.transformer_eval_pack ?? 'GDPR'}, no shared violation types). ` +
@@ -178,14 +195,20 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
           <div className="fidelity-scores">
             <div className="fidelity-card">
               <div className="fidelity-value">{(golden?.label_fidelity_score ?? 0).toFixed(1)}%</div>
-              <div className="fidelity-label">Label fidelity</div>
+              <div className="fidelity-label">
+                Label fidelity
+                <InfoTip text="% of taxonomy violation classes correctly represented vs. the golden reference set." />
+              </div>
               <div className="fidelity-sub">
                 {golden?.classes_matched ?? 0} / {golden?.classes_total ?? 16} violation classes matched
               </div>
             </div>
             <div className="fidelity-card">
               <div className="fidelity-value">{(golden?.statistical_fidelity_score ?? 0).toFixed(1)}%</div>
-              <div className="fidelity-label">Statistical fidelity</div>
+              <div className="fidelity-label">
+                Statistical fidelity
+                <InfoTip text="How closely field distributions (severity mix, timing, etc.) match the golden reference set." />
+              </div>
               <div className="fidelity-sub">Max field deviation {(golden?.max_field_deviation_pct ?? 0).toFixed(1)}%</div>
             </div>
           </div>
@@ -267,6 +290,58 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
               </g>
             ))}
           </svg>
+        </div>
+      )}
+
+      {retrainModelSnapshot && (
+        <div className="glass-panel panel-pad tab-panel">
+          <div className="panel-title">
+            Retrain-Target Model — v{retrainModelSnapshot.model_version} ({retrainModelSnapshot.status})
+          </div>
+          <p className="proof-desc">
+            The fine-tuned model that rephrases Copilot's answers (never the citations). Trained{' '}
+            {new Date(retrainModelSnapshot.trained_at).toLocaleString()} on{' '}
+            {retrainModelSnapshot.cumulative_train_size.toLocaleString()} cumulative Q&amp;A examples.
+          </p>
+          <div className="proof-metrics">
+            <div className="proof-metric">
+              <span className="proof-metric-label">
+                Citation accuracy
+                <InfoTip text="% of Copilot answers whose cited evidence log IDs are actually correct." />
+              </span>
+              <span className="proof-metric-value">{(retrainModelSnapshot.eval.citation_accuracy * 100).toFixed(0)}%</span>
+            </div>
+            <div className="proof-metric">
+              <span className="proof-metric-label">
+                Groundedness
+                <InfoTip text="% of the rephrased answer text that's actually supported by the cited evidence — not invented." />
+              </span>
+              <span className="proof-metric-value">{(retrainModelSnapshot.eval.groundedness * 100).toFixed(0)}%</span>
+            </div>
+            <Badge status={retrainModelSnapshot.status === 'active' ? 'pass' : retrainModelSnapshot.status === 'rejected' ? 'fail' : 'skipped'} />
+          </div>
+          {retrainModelTrend && (
+            <>
+              <div className="config-section-label" style={{ marginTop: 20 }}>
+                Citation accuracy across versions
+              </div>
+              <svg viewBox={`0 0 ${retrainModelTrend.w} ${retrainModelTrend.h}`} style={{ width: '100%', height: 200, overflow: 'visible' }}>
+                <path d={retrainModelTrend.areaPath} fill={accent} opacity={0.14} />
+                <path d={retrainModelTrend.linePath} fill="none" stroke={accent} strokeWidth={2.5} />
+                {retrainModelTrend.points.map((p, i) => (
+                  <g key={i}>
+                    <circle cx={p.x} cy={p.y} r={4} fill={accent} stroke="var(--surface-hole)" strokeWidth={2} />
+                    <text x={p.x} y={p.labelY} fontSize={11} fill="var(--text-tertiary)" textAnchor="middle">
+                      {p.durationLabel}
+                    </text>
+                    <text x={p.x} y={retrainModelTrend.axisY} fontSize={11} fill="var(--text-secondary)" textAnchor="middle">
+                      {p.shortName}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            </>
+          )}
         </div>
       )}
     </div>

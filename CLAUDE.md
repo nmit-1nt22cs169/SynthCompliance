@@ -34,10 +34,13 @@ cd infra/docker && cp .env.example .env && docker compose up --build
 ```
 
 Nemotron (LLM) is optional but required for real generation quality — see "Deterministic vs. LLM" below.
-Set `NVIDIA_API_KEY` for the NVIDIA Build API, or `USE_SELF_HOSTED=true` + `NIM_BASE_URL` for a self-hosted
-NIM / local Ollama (Ollama serves an OpenAI-compatible API on `:11434/v1`, so it drops straight into the
-self-hosted path with no code changes). Offline deterministic generation works without any key, but only
-the structural fields get filled in — see below.
+Set `PRIVATE_API_KEY` for a hosted API (e.g. NVIDIA Build), or `USE_SELF_HOSTED=true` + `LOCAL_BASE_URL`
+for a self-hosted NIM / local Ollama (Ollama serves an OpenAI-compatible API on `:11434/v1`, so it drops
+straight into the self-hosted path with no code changes). Offline deterministic generation works without
+any key, but only the structural fields get filled in — see below. `provider.py`'s `LLMProvider` is
+generic across all of these; a second model slot (`RETRAIN_*` vars, `get_retrain_provider()`, gated by
+the same `RETRAIN_MODEL` flag as the classifier retrain) reuses the same class for the target-
+architecture retrain-target/Copilot path (any LLM, not tied to a specific one — not yet built).
 
 ## Architecture
 

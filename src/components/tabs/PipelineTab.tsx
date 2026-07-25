@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../Badge';
-import { deriveGantt, deriveLineChart, deriveLiveStages } from '../../lib/derive';
-import { fetchConfig, fetchTaxonomy, getJobStatus, startJob, subscribeJobEvents, type ConfigResponse, type JobEvent } from '../../lib/api';
+import { deriveGantt, deriveLiveStages } from '../../lib/derive';
+import {
+  fetchConfig,
+  fetchRetrainModelStatus,
+  fetchTaxonomy,
+  getJobStatus,
+  getRetrainModelJobStatus,
+  startJob,
+  subscribeJobEvents,
+  subscribeRetrainModelJobEvents,
+  type ConfigResponse,
+  type JobEvent,
+  type RetrainModelSnapshot
+} from '../../lib/api';
 import { formatDuration } from '../../lib/format';
 import type { JobConfig, ValidationReport } from '../../types';
 
@@ -47,6 +59,7 @@ function formatClock(ms: number): string {
 }
 
 const JOB_STORAGE_KEY = 'synthcompliance:lastJob';
+const RETRAIN_MODEL_JOB_STORAGE_KEY = 'synthcompliance:lastRetrainModelJob';
 
 interface StoredJob {
   job_id: string;
@@ -55,12 +68,11 @@ interface StoredJob {
 
 interface PipelineTabProps {
   report: ValidationReport | null;
-  accent: string;
   onJobActiveChange?: (active: boolean) => void;
   onJobComplete?: () => void;
 }
 
-export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }: PipelineTabProps) {
+export function PipelineTab({ report, onJobActiveChange, onJobComplete }: PipelineTabProps) {
   const [packs, setPacks] = useState<string[]>(['SOX', 'GDPR']);
   const [controlClasses, setControlClasses] = useState<string[]>([
     'segregation_of_duties',
@@ -85,7 +97,11 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   const [backendConfig, setBackendConfig] = useState<ConfigResponse | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [retrainModelSnapshot, setRetrainModelSnapshot] = useState<RetrainModelSnapshot | null>(null);
+  const [retrainModelEvents, setRetrainModelEvents] = useState<JobEvent[]>([]);
+  const [retrainModelRunning, setRetrainModelRunning] = useState(false);
   const lastStageRef = useRef<string | null>(null);
+  const retrainLastStageRef = useRef<string | null>(null);
   const receivedAnyEventRef = useRef(false);
   const jobLogRef = useRef<HTMLDivElement | null>(null);
 
@@ -122,11 +138,59 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       .finally(() => setConfigLoading(false));
   };
 
+  const refreshRetrainModelStatus = () => {
+    fetchRetrainModelStatus()
+      .then((r) => setRetrainModelSnapshot(r.snapshot))
+      .catch(() => setRetrainModelSnapshot(null));
+  };
+
   // Fetched once for this component's lifetime, not per tab-switch — all tabs stay mounted
   // (see CLAUDE.md), and provider config rarely changes mid-session. `refreshConfig` is exposed
   // via a manual button for the rare case it does (e.g. backend restarted with new env vars).
   useEffect(() => {
     refreshConfig();
+    refreshRetrainModelStatus();
+  }, []);
+
+  const attachToRetrainModelJob = (jobId: string) => {
+    retrainLastStageRef.current = null;
+    setRetrainModelRunning(true);
+    setRetrainModelEvents([]);
+    subscribeRetrainModelJobEvents(
+      jobId,
+      (ev) => {
+        retrainLastStageRef.current = ev.stage;
+        setRetrainModelEvents((prev) => [...prev, ev]);
+      },
+      () => {
+        setRetrainModelRunning(false);
+        localStorage.removeItem(RETRAIN_MODEL_JOB_STORAGE_KEY);
+        refreshRetrainModelStatus();
+      }
+    );
+  };
+
+  // Resume watching an in-progress retrain-model job across a page refresh — same pattern as
+  // the main job's resume effect below, on its own storage key since it's a separate job bus.
+  useEffect(() => {
+    const raw = localStorage.getItem(RETRAIN_MODEL_JOB_STORAGE_KEY);
+    if (!raw) return;
+    let jobId: string;
+    try {
+      jobId = (JSON.parse(raw) as { job_id: string }).job_id;
+    } catch {
+      localStorage.removeItem(RETRAIN_MODEL_JOB_STORAGE_KEY);
+      return;
+    }
+    getRetrainModelJobStatus(jobId)
+      .then((job) => {
+        if (job.status === 'queued' || job.status === 'running') {
+          attachToRetrainModelJob(jobId);
+        } else {
+          localStorage.removeItem(RETRAIN_MODEL_JOB_STORAGE_KEY);
+        }
+      })
+      .catch(() => localStorage.removeItem(RETRAIN_MODEL_JOB_STORAGE_KEY));
   }, []);
 
   const isSynced = outcome === 'success' && !!report?.run_id && report.run_id !== startRunId;
@@ -189,6 +253,20 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         setFinishedAt(Date.now());
         setOutcome(lastStageRef.current === 'failed' ? 'failed' : 'success');
         onJobComplete?.();
+        // The main pipeline job may have spawned a separate retrain-model job (RETRAIN_MODEL=true
+        // and a regression was detected) — pick it up and start watching it too.
+        getJobStatus(jobId)
+          .then((job) => {
+            const retrainJobId = (job as { result?: { retrain_model_job_id?: string | null } }).result
+              ?.retrain_model_job_id;
+            if (retrainJobId) {
+              localStorage.setItem(RETRAIN_MODEL_JOB_STORAGE_KEY, JSON.stringify({ job_id: retrainJobId }));
+              attachToRetrainModelJob(retrainJobId);
+            }
+          })
+          .catch(() => {
+            /* nothing to resume */
+          });
       }
     );
   };
@@ -257,7 +335,6 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
       });
   }, []);
 
-  const lineChart = report ? deriveLineChart(report) : null;
   const gantt = report ? deriveGantt(report) : null;
   const latest = jobEvents[jobEvents.length - 1];
   const showLiveStages = phase === 'running' || phase === 'finalizing';
@@ -277,32 +354,115 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         </div>
         {configError && <div className="wizard-error">{configError}</div>}
         {backendConfig && (
-          <div className="proof-metrics" style={{ marginTop: 12 }}>
-            <div className="proof-metric">
-              <span className="proof-metric-label">Provider</span>
-              <span className="proof-metric-value">
-                {backendConfig.provider.available
-                  ? backendConfig.provider.use_self_hosted
-                    ? 'Self-hosted / Ollama'
-                    : 'NVIDIA Cloud'
-                  : 'None (deterministic)'}
-              </span>
+          <>
+            <div className="config-section-label" style={{ marginTop: 12 }}>
+              Generation model — writes audit-log content during a run
             </div>
-            <div className="proof-metric">
-              <span className="proof-metric-label">Model</span>
-              <span className="proof-metric-value">{backendConfig.provider.available ? backendConfig.provider.model : '—'}</span>
+            <div className="proof-metrics">
+              <div className="proof-metric">
+                <span className="proof-metric-label">Mode</span>
+                <span className="proof-metric-value">
+                  {backendConfig.provider.available
+                    ? backendConfig.provider.use_self_hosted
+                      ? 'Self-hosted / Ollama'
+                      : 'Hosted'
+                    : 'None (deterministic)'}
+                </span>
+              </div>
+              <div className="proof-metric">
+                <span className="proof-metric-label">Model name</span>
+                <span className="proof-metric-value">{backendConfig.provider.available ? backendConfig.provider.model : '—'}</span>
+              </div>
+              <div className="proof-metric">
+                <span className="proof-metric-label">Endpoint reachable</span>
+                <Badge status={backendConfig.provider.available ? (backendConfig.provider.reachable ? 'pass' : 'fail') : 'skipped'} />
+              </div>
+              <div className="proof-metric">
+                <span className="proof-metric-label">Retraining</span>
+                <span className="proof-metric-value">{backendConfig.retrain_model_enabled ? 'On' : 'Off'}</span>
+              </div>
             </div>
-            <div className="proof-metric">
-              <span className="proof-metric-label">Endpoint reachable</span>
-              <Badge status={backendConfig.provider.available ? (backendConfig.provider.reachable ? 'pass' : 'fail') : 'skipped'} />
-            </div>
-            <div className="proof-metric">
-              <span className="proof-metric-label">Retraining</span>
-              <span className="proof-metric-value">{backendConfig.retrain_model_enabled ? 'On' : 'Off'}</span>
-            </div>
-          </div>
+            {backendConfig.retrain_provider && (
+              <>
+                <div className="config-section-label" style={{ marginTop: 16 }}>
+                  Retrain-target model — the (future) model retrained for Copilot, independent of the one above
+                </div>
+                <div className="proof-metrics">
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Mode</span>
+                    <span className="proof-metric-value">
+                      {backendConfig.retrain_provider.available
+                        ? backendConfig.retrain_provider.use_self_hosted
+                          ? 'Self-hosted / Ollama'
+                          : 'Hosted'
+                        : 'Not configured'}
+                    </span>
+                  </div>
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Model name</span>
+                    <span className="proof-metric-value">
+                      {backendConfig.retrain_provider.available ? backendConfig.retrain_provider.model : '—'}
+                    </span>
+                  </div>
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Endpoint reachable</span>
+                    <Badge
+                      status={
+                        backendConfig.retrain_provider.available ? (backendConfig.retrain_provider.reachable ? 'pass' : 'fail') : 'skipped'
+                      }
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            {retrainModelSnapshot && (
+              <>
+                <div className="config-section-label" style={{ marginTop: 16 }}>
+                  Retrain-target model — last fine-tune result
+                </div>
+                <div className="proof-metrics">
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Version</span>
+                    <span className="proof-metric-value">v{retrainModelSnapshot.model_version}</span>
+                  </div>
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Status</span>
+                    <Badge status={retrainModelSnapshot.status === 'active' ? 'pass' : retrainModelSnapshot.status === 'rejected' ? 'fail' : 'skipped'} />
+                  </div>
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Citation accuracy</span>
+                    <span className="proof-metric-value">{(retrainModelSnapshot.eval.citation_accuracy * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="proof-metric">
+                    <span className="proof-metric-label">Groundedness</span>
+                    <span className="proof-metric-value">{(retrainModelSnapshot.eval.groundedness * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
         )}
       </div>
+
+      {(retrainModelRunning || retrainModelEvents.length > 0) && (
+        <div className="glass-panel tab-panel panel-pad">
+          <div className="job-feed-header">
+            <div className="panel-title" style={{ marginBottom: 0 }}>
+              Retrain-Target Model — Training
+            </div>
+            {retrainModelRunning && (
+              <span className="job-timer-status job-timer-status-running">Running…</span>
+            )}
+          </div>
+          <div className="job-log">
+            {retrainModelEvents.map((ev, i) => (
+              <div key={i} className="job-log-line">
+                <span className="job-stage">[{ev.stage}]</span> {ev.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="glass-panel tab-panel wizard-panel">
         <div className="panel-title">Pipeline Wizard</div>
@@ -409,9 +569,21 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         </div>
 
         <div className="wizard-actions">
-          <button type="button" className="copilot-button" disabled={running || !mixValid || packs.length === 0} onClick={() => runPipeline()}>
+          <button
+            type="button"
+            className="copilot-button"
+            disabled={running || !mixValid || packs.length === 0 || configLoading || !backendConfig}
+            onClick={() => runPipeline()}
+          >
             {running ? 'Running…' : 'Run Pipeline'}
           </button>
+          {!running && (configLoading || !backendConfig) && (
+            <span className="wizard-hint" style={{ alignSelf: 'center' }}>
+              {configLoading
+                ? 'Loading backend configuration…'
+                : 'Backend configuration not loaded — check that npm run dev:api is running, then click Refresh above.'}
+            </span>
+          )}
         </div>
 
         {error && <div className="wizard-error">{error}</div>}
@@ -466,47 +638,24 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         )}
       </div>
 
-      {lineChart && report && (
-        <>
-          <div className="glass-panel tab-panel panel-pad">
-            <div className="panel-title">Stage Duration Trend</div>
-            <svg viewBox={`0 0 ${lineChart.w} ${lineChart.h}`} style={{ width: '100%', height: 200, overflow: 'visible' }}>
-              <path d={lineChart.areaPath} fill={accent} opacity={0.14} />
-              <path d={lineChart.linePath} fill="none" stroke={accent} strokeWidth={2.5} />
-              {lineChart.points.map((p, i) => (
-                <g key={i}>
-                  <circle cx={p.x} cy={p.y} r={4} fill={accent} stroke="var(--surface-hole)" strokeWidth={2} />
-                  <text x={p.x} y={p.labelY} fontSize={11} fill="var(--text-tertiary)" textAnchor="middle">
-                    {p.durationLabel}
-                  </text>
-                  <text x={p.x} y={lineChart.axisY} fontSize={11} fill="var(--text-secondary)" textAnchor="middle">
-                    {p.shortName}
-                  </text>
-                </g>
-              ))}
-            </svg>
-          </div>
-
-          {gantt && (
-            <div className="glass-panel tab-panel panel-pad">
-              <div className="panel-title">Stage Duration Breakdown</div>
-              <div className="gantt">
-                {gantt.map((g) => (
-                  <div className="gantt-row" key={g.stage}>
-                    <span className="gantt-label">{g.stage}</span>
-                    <div className="gantt-track">
-                      <div
-                        className={`gantt-bar${g.status === 'running' ? ' gantt-bar-running' : ''}`}
-                        style={{ width: `${g.pct}%` }}
-                      />
-                    </div>
-                    <span className="gantt-value">{formatDuration(g.durationMs)}</span>
-                  </div>
-                ))}
+      {gantt && report && (
+        <div className="glass-panel tab-panel panel-pad">
+          <div className="panel-title">Stage Durations</div>
+          <div className="gantt">
+            {gantt.map((g) => (
+              <div className="gantt-row" key={g.stage}>
+                <span className="gantt-label">{g.stage}</span>
+                <div className="gantt-track">
+                  <div
+                    className={`gantt-bar${g.status === 'running' ? ' gantt-bar-running' : ''}`}
+                    style={{ width: `${g.pct}%` }}
+                  />
+                </div>
+                <span className="gantt-value">{formatDuration(g.durationMs)}</span>
               </div>
-            </div>
-          )}
-        </>
+            ))}
+          </div>
+        </div>
       )}
 
       {displayStages && (

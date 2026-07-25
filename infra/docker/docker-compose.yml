@@ -8,11 +8,20 @@ services:
     environment:
       - SYNTH_DATA_DIR=/app/public/data
       - USE_SELF_HOSTED=${USE_SELF_HOSTED:-false}
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
-      - NVIDIA_BASE_URL=${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
-      - NIM_BASE_URL=${NIM_BASE_URL:-http://nim:8000/v1}
-      - NEMOTRON_MODEL=${NEMOTRON_MODEL:-nvidia/nemotron-3-super}
+      - PRIVATE_API_KEY=${PRIVATE_API_KEY:-}
+      - PRIVATE_BASE_URL=${PRIVATE_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      - HOSTED_LLM_MODEL=${HOSTED_LLM_MODEL:-nvidia/nemotron-3-super}
+      - LOCAL_BASE_URL=${LOCAL_BASE_URL:-http://nim:8000/v1}
+      - LOCAL_API_KEY=${LOCAL_API_KEY:-not-needed}
+      - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-}
       - RETRAIN_MODEL=${RETRAIN_MODEL:-false}
+      - RETRAIN_USE_SELF_HOSTED=${RETRAIN_USE_SELF_HOSTED:-}
+      - RETRAIN_LOCAL_BASE_URL=${RETRAIN_LOCAL_BASE_URL:-}
+      - RETRAIN_LOCAL_API_KEY=${RETRAIN_LOCAL_API_KEY:-}
+      - RETRAIN_LOCAL_LLM_MODEL=${RETRAIN_LOCAL_LLM_MODEL:-}
+      - RETRAIN_PRIVATE_BASE_URL=${RETRAIN_PRIVATE_BASE_URL:-}
+      - RETRAIN_PRIVATE_API_KEY=${RETRAIN_PRIVATE_API_KEY:-}
+      - RETRAIN_HOSTED_LLM_MODEL=${RETRAIN_HOSTED_LLM_MODEL:-}
     volumes:
       - ../public/data:/app/public/data
 

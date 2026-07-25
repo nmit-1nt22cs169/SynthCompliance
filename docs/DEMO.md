@@ -33,9 +33,9 @@ Copy `infra/docker/.env.example` → `.env`:
 
 | Mode | Env |
 |------|-----|
-| NVIDIA Build API | `USE_SELF_HOSTED=false`, `NVIDIA_API_KEY=...` |
-| Self-hosted NIM | `USE_SELF_HOSTED=true`, `NIM_BASE_URL=http://gpu-cluster:8000/v1` |
-| Local Ollama | `USE_SELF_HOSTED=true`, `NIM_BASE_URL=http://localhost:11434/v1`, `NEMOTRON_MODEL=<a pulled model>` (Ollama serves an OpenAI-compatible API, so this needs no code changes) |
+| NVIDIA Build API (or any hosted API) | `USE_SELF_HOSTED=false`, `PRIVATE_API_KEY=...`, `HOSTED_LLM_MODEL=...` |
+| Self-hosted NIM | `USE_SELF_HOSTED=true`, `LOCAL_BASE_URL=http://gpu-cluster:8000/v1` |
+| Local Ollama | `USE_SELF_HOSTED=true`, `LOCAL_BASE_URL=http://localhost:11434/v1`, `LOCAL_LLM_MODEL=<a pulled model>` (Ollama serves an OpenAI-compatible API, so this needs no code changes) |
 
 Offline deterministic generation works without any API key, but only the structural fields (`log_id`,
 `timestamp`, taxonomy fields) are populated that way — `user_id`, `resource`, `action`, `outcome`,

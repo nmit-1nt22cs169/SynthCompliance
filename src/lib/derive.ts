@@ -1,5 +1,4 @@
-import { formatDuration } from './format';
-import type { JobEvent } from './api';
+import type { JobEvent, RetrainModelHistoryEntry } from './api';
 import type { AuditLog, PipelineStage, RetrainHistoryEntry, ValidationReport, ValidatorStatus, Violation } from '../types';
 
 export interface Kpi {
@@ -171,37 +170,9 @@ const STAGE_SHORT: Record<string, string> = {
   'Model Retraining': 'Retrain'
 };
 
-export function deriveLineChart(report: ValidationReport): LineChart {
-  const w = 640;
-  const h = 200;
-  const padL = 20;
-  const padR = 20;
-  const padT = 30;
-  const padB = 40;
-  const values = report.pipeline_stages.map((s) => s.duration_ms);
-  const max = Math.max(...values);
-  const n = values.length;
-  const stepX = (w - padL - padR) / (n - 1);
-  const plotBottom = h - padB;
-  const points: LineChartPoint[] = values.map((v, i) => {
-    const x = padL + i * stepX;
-    const y = padT + (plotBottom - padT) * (1 - v / max);
-    return {
-      x: +x.toFixed(1),
-      y: +y.toFixed(1),
-      shortName: STAGE_SHORT[report.pipeline_stages[i].stage] || report.pipeline_stages[i].stage,
-      durationLabel: formatDuration(v),
-      labelY: +(y - 12).toFixed(1)
-    };
-  });
-  const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
-  const areaPath = `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z`;
-  return { w, h, linePath, areaPath, points, axisY: h - 12 };
-}
-
 /** Recall trend across persisted-model retrain versions, reusing the same LineChart shape (and
- * SVG rendering JSX) as deriveLineChart's stage-duration curve — a different x/y meaning, same
- * hand-rolled chart primitive, no new charting code. */
+ * SVG rendering JSX) as ProofTab's other trend charts — a different x/y meaning, same hand-rolled
+ * chart primitive, no new charting code. */
 export function deriveRetrainTrend(history: RetrainHistoryEntry[]): LineChart {
   const w = 640;
   const h = 200;
@@ -210,6 +181,38 @@ export function deriveRetrainTrend(history: RetrainHistoryEntry[]): LineChart {
   const padT = 30;
   const padB = 40;
   const values = history.map((h) => h.metrics_after.recall);
+  const max = Math.max(...values, 0.01);
+  const n = values.length;
+  const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const plotBottom = h - padB;
+  const points: LineChartPoint[] = values.map((v, i) => {
+    const x = padL + i * stepX;
+    const y = padT + (plotBottom - padT) * (1 - v / max);
+    return {
+      x: +x.toFixed(1),
+      y: +y.toFixed(1),
+      shortName: `v${history[i].model_version}`,
+      durationLabel: v.toFixed(2),
+      labelY: +(y - 12).toFixed(1)
+    };
+  });
+  const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
+  const areaPath = n > 0 ? `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z` : '';
+  return { w, h, linePath, areaPath, points, axisY: h - 12 };
+}
+
+/** Citation accuracy across retrain-target model versions — same LineChart shape/rendering as
+ * deriveRetrainTrend above, plotting the fine-tuned model's eval score instead of the
+ * classifier's recall. Citation accuracy (not groundedness) is the primary line since it's the
+ * safety-critical metric: does the model still cite real evidence_log_ids. */
+export function deriveRetrainModelTrend(history: RetrainModelHistoryEntry[]): LineChart {
+  const w = 640;
+  const h = 200;
+  const padL = 20;
+  const padR = 20;
+  const padT = 30;
+  const padB = 40;
+  const values = history.map((entry) => entry.eval.citation_accuracy);
   const max = Math.max(...values, 0.01);
   const n = values.length;
   const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
@@ -310,22 +313,6 @@ export function deriveWeightBars(weights: Record<string, number> | undefined): W
   return entries
     .map(([label, weight]) => ({ label: label.replace(/_/g, ' '), weight, pct: Math.max(2, Math.round((weight / max) * 100)) }))
     .sort((a, b) => b.weight - a.weight);
-}
-
-export interface HourBucket {
-  hour: number;
-  count: number;
-  pct: number;
-}
-
-export function deriveHourlyActivity(auditLogs: AuditLog[]): HourBucket[] {
-  const counts = new Array(24).fill(0) as number[];
-  for (const log of auditLogs) {
-    const hour = new Date(log.timestamp).getUTCHours();
-    if (!Number.isNaN(hour)) counts[hour] += 1;
-  }
-  const max = Math.max(...counts, 1);
-  return counts.map((count, hour) => ({ hour, count, pct: Math.round((count / max) * 100) }));
 }
 
 export interface RiskCell {

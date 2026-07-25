@@ -74,7 +74,7 @@ no provider configured, generation still runs end-to-end, but those content fiel
 assigned deterministic values instead of LLM-written ones — the dashboard's "Fields LLM-generated" KPI
 shows 0 in that case, honestly.
 
-Set `NVIDIA_API_KEY` for the NVIDIA Build API, or `USE_SELF_HOSTED=true` + `NIM_BASE_URL` for a self-hosted
-NIM — this also covers a local Ollama instance, since Ollama serves an OpenAI-compatible API on
-`:11434/v1` and needs no code changes, just `NIM_BASE_URL=http://localhost:11434/v1` (or
-`http://host.docker.internal:11434/v1` from inside Docker) and `NEMOTRON_MODEL=<a pulled model>`.
+Set `PRIVATE_API_KEY` for a hosted API (e.g. NVIDIA Build), or `USE_SELF_HOSTED=true` + `LOCAL_BASE_URL`
+for a self-hosted NIM — this also covers a local Ollama instance, since Ollama serves an OpenAI-compatible
+API on `:11434/v1` and needs no code changes, just `LOCAL_BASE_URL=http://localhost:11434/v1` (or
+`http://host.docker.internal:11434/v1` from inside Docker) and `LOCAL_LLM_MODEL=<a pulled model>`.

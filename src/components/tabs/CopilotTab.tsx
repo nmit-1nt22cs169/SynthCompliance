@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { SeverityBadge } from '../Badge';
+import { useEffect, useState } from 'react';
+import { Badge, SeverityBadge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
-import { queryCopilot } from '../../lib/api';
+import { fetchRetrainModelStatus, queryCopilot, type RetrainModelSnapshot } from '../../lib/api';
 import type { AuditLog, DataTable, Violation } from '../../types';
 
 interface CopilotTabProps {
@@ -17,6 +17,7 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<string | null>(null);
+  const [modelBackend, setModelBackend] = useState<string | null>(null);
   const [results, setResults] = useState<
     {
       violation_id: string;
@@ -27,6 +28,18 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
     }[]
   >([]);
   const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
+  const [retrainSnapshot, setRetrainSnapshot] = useState<RetrainModelSnapshot | null>(null);
+
+  // Static, fetched once — same "rare to change mid-session" reasoning as ProofTab/PipelineTab's
+  // config fetches. Tells the user upfront whether the rephrasing layer below is actually live
+  // before they've run a single query.
+  useEffect(() => {
+    fetchRetrainModelStatus()
+      .then((r) => setRetrainSnapshot(r.snapshot))
+      .catch(() => setRetrainSnapshot(null));
+  }, []);
+
+  const rephraseLive = retrainSnapshot?.status === 'active';
 
   const submit = async () => {
     if (!queryText.trim()) {
@@ -42,6 +55,7 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
     try {
       const resp = await queryCopilot(queryText);
       setAnswer(resp.answer);
+      setModelBackend(resp.model_backend ?? 'rule_based');
       setEvidenceIds(resp.evidence_log_ids);
       setResults(
         resp.citations.map((c) => ({
@@ -56,6 +70,7 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
       setError(e instanceof Error ? e.message : 'Copilot API unavailable — ensure dev:api is running');
       setResults([]);
       setAnswer(null);
+      setModelBackend(null);
       setEvidenceIds([]);
     } finally {
       setLoading(false);
@@ -66,7 +81,18 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
     <div className="glass-panel copilot-panel">
       {jobActive && <StaleBanner />}
       <div className="panel-title">Compliance Copilot</div>
-      <p className="copilot-sub">Live API — rule-grounded retrieval with cited evidence_log_ids from the current run.</p>
+      <p className="copilot-sub">
+        Every answer below is matched directly from this run's real data — the facts and evidence
+        you see are never invented, no matter what's toggled below.
+      </p>
+      <div className="copilot-status-row">
+        <Badge status={rephraseLive ? 'pass' : 'skipped'} />
+        <span className="copilot-status-text">
+          {rephraseLive
+            ? `AI rephrasing is on — a trained model (v${retrainSnapshot?.model_version}) rewrites these answers in more natural language. The facts underneath never change.`
+            : "AI rephrasing is off for this run — answers are shown exactly as matched, in plain rule-based form. This optional layer isn't turned on yet."}
+        </span>
+      </div>
       <div className="copilot-query-row">
         <input
           type="text"
@@ -87,6 +113,11 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
 
       {hasSearched && !error && (
         <div className="copilot-results">
+          {answer && modelBackend && (
+            <div className="copilot-model-backend">
+              {modelBackend === 'rule_based' ? 'Answered by: rule-based' : `Rephrased by: ${modelBackend}`}
+            </div>
+          )}
           {answer && <div className="copilot-answer">{answer}</div>}
           {results.length > 0 ? (
             results.map((r) => (

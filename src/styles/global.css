@@ -791,26 +791,68 @@ select:focus-visible {
   color: var(--text-primary);
 }
 
-/* ---------- Hourly activity heat row (Overview) ---------- */
-.hour-heat-row {
-  display: grid;
-  grid-template-columns: repeat(24, 1fr);
-  gap: 3px;
-}
-
-.hour-heat-cell {
-  height: 32px;
-  border-radius: var(--radius-xs);
-  display: flex;
-  align-items: flex-end;
+/* ---------- InfoTip (hover/focus explainer icon) ---------- */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  padding-bottom: 3px;
+  margin-left: var(--space-2);
+  vertical-align: middle;
+  outline: none;
 }
 
-.hour-heat-label {
-  font-size: 9px;
+.info-tip-icon {
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-circle);
+  background: rgba(0, 0, 0, 0.08);
   color: var(--text-tertiary);
-  font-family: var(--mono);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.info-tip:hover .info-tip-icon,
+.info-tip:focus .info-tip-icon {
+  background: var(--accent);
+  color: #fff;
+}
+
+.info-tip-bubble {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: #26262b;
+  color: #f4f5f8;
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus .info-tip-bubble,
+.info-tip:focus-within .info-tip-bubble {
+  display: block;
 }
 
 .weight-bar-list {
@@ -1362,6 +1404,19 @@ select:focus-visible {
   text-transform: uppercase;
 }
 
+/* Sub-heading above a proof-metrics group — distinguishes which model slot a "Mode"/"Model
+   name" row belongs to when more than one group is shown at once (e.g. Backend Configuration's
+   generation vs. retrain-target models). Deliberately a step more prominent than
+   .proof-metric-label so it reads as a section header, not another metric. */
+.config-section-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--space-2);
+}
+
 .proof-metric-value {
   font-size: var(--text-md);
   font-weight: 600;
@@ -1425,6 +1480,31 @@ select:focus-visible {
   font-size: var(--text-sm);
   color: var(--text-secondary);
   margin: -8px 0 12px;
+}
+
+.copilot-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: var(--space-4);
+}
+
+.copilot-status-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.copilot-model-backend {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 6px;
 }
 
 .copilot-answer {
