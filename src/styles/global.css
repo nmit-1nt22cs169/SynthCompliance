@@ -722,6 +722,12 @@ select:focus-visible {
 /* ---------- Matrices (violation type x severity, role x sensitivity) ---------- */
 .matrix-wrap {
   overflow-x: auto;
+  /* Grid items default to min-width: auto, so a wide table (long headers like "Predicted
+     violation") can stretch its 1fr column past the panel's padding instead of scrolling
+     within overflow-x above — min-width: 0 lets the column shrink to the track width and
+     the table scroll internally instead. No effect when .matrix-wrap isn't a grid/flex item
+     (e.g. OverviewTab's Risk Matrix), since min-width only participates in that sizing there. */
+  min-width: 0;
 }
 
 .matrix-table th,
@@ -732,6 +738,20 @@ select:focus-visible {
 .matrix-table td:first-child {
   text-align: left;
   text-transform: capitalize;
+}
+
+/* Confusion matrix (ProofTab) is only ever a small fixed 2x2 grid squeezed into half a
+   .proof-grid column — table-layout: fixed + width: 100% makes it fit its column exactly
+   (wrapping "Predicted violation" onto two lines if needed) instead of overflowing/scrolling,
+   which the Risk Matrix elsewhere doesn't need since it isn't column-constrained like this. */
+.confusion-matrix-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.confusion-matrix-table th {
+  font-size: var(--text-2xs);
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .matrix-cell {
@@ -1282,7 +1302,11 @@ select:focus-visible {
 /* ---------- Proof tab ---------- */
 .proof-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr), not plain 1fr: a plain 1fr column still grows to fit a wide child's
+     content (e.g. a table with long headers) before finally scrolling — minmax(0, ...) caps
+     it at its fair share of the row so children scroll/wrap in place instead of pushing the
+     whole grid (and page) wider. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px;
 }
 

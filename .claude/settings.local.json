@@ -14,7 +14,9 @@
       "Bash(export NEMOTRON_MODEL=nemotron-3-nano:4b)",
       "Bash(export SYNTH_DATA_DIR=./public/data)",
       "Bash(curl -s http://localhost:8000/api/health)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s http://localhost:5173/ -o /dev/null -w \"frontend: %{http_code}\\\\n\")",
+      "Bash(curl -s \"http://localhost:5173/src/components/tabs/PipelineTab.tsx\")"
     ]
   }
 }

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(lsof -tiTCP:8000 -sTCP:LISTEN)",
+      "Bash(xargs -r kill)",
+      "Bash(lsof -tiTCP:5173 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:8000 -sTCP:LISTEN -n -P)",
+      "Bash(lsof -iTCP:5173 -sTCP:LISTEN -n -P)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s http://localhost:5173/ -o /dev/null -w \"frontend: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:8000/api/config)",
+      "Bash(python3 -m json.tool)"
+    ]
+  }
+}

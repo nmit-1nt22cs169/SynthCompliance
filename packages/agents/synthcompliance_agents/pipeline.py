@@ -22,7 +22,7 @@ from synthcompliance_generators.scenario_engine import (
 from synthcompliance_taxonomy.controls import TAXONOMY
 from synthcompliance_taxonomy.roster import ASSET_LIST, USER_ROSTER
 from synthcompliance_validators.report import build_validation_report
-from synthcompliance_validators.tstr import load_retrain_history, retrain_persisted_model, run_tstr
+from synthcompliance_validators.tstr import load_latest_retrain_snapshot, retrain_persisted_model, run_tstr
 
 EventCb = Callable[[dict[str, Any]], None]
 
@@ -831,10 +831,15 @@ class PipelineOrchestrator:
         corpus = self.generator.run(plan, on_event=on_event)
         gen_duration_ms = int((time.time() - t_gen0) * 1000)
         _emit_stage(on_event, "Log Generator", "completed", gen_duration_ms)
+        # ScenarioEngine floors n_logs to a minimum of 20 (see scenario_engine.py's
+        # `self.n_logs = max(n_logs, 20)`) — targets must be derived from plan["n_logs"] (what
+        # actually got generated), not the raw request, or a small n_logs request shows a
+        # target that never matches dataset_actual (e.g. "20 / 1" on the dashboard).
+        actual_n_logs = plan["n_logs"]
         targets = {
-            "audit_logs": n_logs,
+            "audit_logs": actual_n_logs,
             "violations": sum(plan["violation_type_counts"].values()),
-            "qa_pairs": max(20, n_logs // 10),
+            "qa_pairs": max(20, actual_n_logs // 10),
             "llm_fields": corpus.get("llm_fields_target", 0),
         }
         corpus, report = self.validator.run(
@@ -900,10 +905,23 @@ class PipelineOrchestrator:
             _emit_stage(on_event, "Model Retraining", "completed", retrain_duration_ms)
         else:
             tstr_metrics["retrained"] = False
-            # Even when this run didn't retrain, surface whatever trend history already exists
-            # on disk from prior retrains — otherwise the trend chart would only ever appear on
-            # runs that happen to retrain.
-            tstr_metrics["retrain_history"] = load_retrain_history(checkpoint_dir)
+            # Even when this run didn't retrain, surface the persisted model's last-known state
+            # (confusion matrix, metrics, version, trend history) from disk — otherwise the
+            # whole "Retrain Impact" panel would vanish from the dashboard the moment a single
+            # run's recall holds steady, even though a persisted model still exists.
+            # `confusion_matrix_before`/`metrics_before` stay unset: those describe "the model
+            # right before THIS retrain," which doesn't apply when no retrain happened this run.
+            snapshot = load_latest_retrain_snapshot(checkpoint_dir)
+            if snapshot:
+                tstr_metrics["retrain_history"] = snapshot.get("history", [])
+                tstr_metrics["model_version"] = snapshot.get("model_version")
+                tstr_metrics["cumulative_train_size"] = snapshot.get("cumulative_train_size")
+                tstr_metrics["trained_at"] = snapshot.get("trained_at")
+                tstr_metrics["confusion_matrix_after"] = snapshot.get("confusion_matrix_after")
+                tstr_metrics["metrics_after"] = snapshot.get("metrics_after")
+                tstr_metrics["post_retrain_recall"] = (snapshot.get("metrics_after") or {}).get("recall")
+            else:
+                tstr_metrics["retrain_history"] = []
             retrain_stage_status = "skipped"
             retrain_duration_ms = 0
             _emit_stage(on_event, "Model Retraining", "skipped")

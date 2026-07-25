@@ -30,7 +30,7 @@ function ConfusionMatrixTable({ title, matrix }: { title: string; matrix: Confus
   return (
     <div className="matrix-wrap">
       <div className="proof-desc" style={{ marginBottom: 4, fontWeight: 600 }}>{title}</div>
-      <table className="data-table matrix-table">
+      <table className="data-table matrix-table confusion-matrix-table">
         <thead>
           <tr>
             <th></th>
@@ -202,15 +202,24 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
       {tstr?.confusion_matrix_after && (
         <div className="glass-panel panel-pad">
           <div className="panel-title">
-            Retrain Impact — Before vs After (v{tstr.model_version}, {tstr.cumulative_train_size?.toLocaleString()} cumulative rows)
+            {tstr.retrained
+              ? `Retrain Impact — Before vs After (v${tstr.model_version}, ${tstr.cumulative_train_size?.toLocaleString()} cumulative rows)`
+              : `Persisted Model — Current State (v${tstr.model_version}, ${tstr.cumulative_train_size?.toLocaleString()} cumulative rows)`}
           </div>
           <div className="proof-grid">
-            {tstr.confusion_matrix_before ? (
-              <ConfusionMatrixTable title="Before this retrain" matrix={tstr.confusion_matrix_before} />
+            {tstr.retrained ? (
+              tstr.confusion_matrix_before ? (
+                <ConfusionMatrixTable title="Before this retrain" matrix={tstr.confusion_matrix_before} />
+              ) : (
+                <div className="proof-desc">First retrain — no prior persisted model to compare.</div>
+              )
             ) : (
-              <div className="proof-desc">First retrain — no prior persisted model to compare.</div>
+              <div className="proof-desc">
+                Recall held steady or improved this run, so retraining didn't fire — showing the persisted
+                model's state from its last retrain instead.
+              </div>
             )}
-            <ConfusionMatrixTable title="After this retrain" matrix={tstr.confusion_matrix_after} />
+            <ConfusionMatrixTable title={tstr.retrained ? 'After this retrain' : 'Current persisted model'} matrix={tstr.confusion_matrix_after} />
           </div>
           {tstr.metrics_after && (
             <div className="proof-metrics" style={{ marginTop: 16 }}>

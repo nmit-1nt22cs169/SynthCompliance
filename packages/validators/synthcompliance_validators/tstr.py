@@ -193,17 +193,24 @@ def _evaluate(pipe: Pipeline, X_eval: list[dict[str, Any]], y_eval: np.ndarray) 
     }
 
 
-def load_retrain_history(checkpoint_dir: Path | str) -> list[dict[str, Any]]:
-    """Read the rolling retrain-snapshot history from tstr_model_meta.json, if any — lets the
-    dashboard show a trend even on a run where retraining didn't fire this time."""
+def load_latest_retrain_snapshot(checkpoint_dir: Path | str) -> dict[str, Any] | None:
+    """Read the full tstr_model_meta.json (model_version, confusion_matrix_after, metrics_after,
+    history, ...) from the most recent retrain, if any — lets the dashboard keep showing the
+    persisted model's last-known state on a run where retraining didn't fire this time, instead
+    of the confusion-matrix panel just disappearing the moment recall holds steady for one run."""
     meta_path = Path(checkpoint_dir) / META_FILENAME
     if not meta_path.exists():
-        return []
+        return None
     try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        return json.loads(meta_path.read_text(encoding="utf-8"))
     except Exception:
-        return []
-    return meta.get("history", [])
+        return None
+
+
+def load_retrain_history(checkpoint_dir: Path | str) -> list[dict[str, Any]]:
+    """Read just the rolling retrain-snapshot history list — used for the trend chart."""
+    snapshot = load_latest_retrain_snapshot(checkpoint_dir)
+    return snapshot.get("history", []) if snapshot else []
 
 
 def retrain_persisted_model(
