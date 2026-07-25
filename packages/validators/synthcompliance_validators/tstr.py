@@ -23,6 +23,9 @@ MAX_TRAINING_HISTORY_ROWS = 20_000
 HISTORY_FILENAME = "tstr_training_history.jsonl"
 MODEL_FILENAME = "tstr_model.joblib"
 META_FILENAME = "tstr_model_meta.json"
+# Bounds how many past retrain snapshots tstr_model_meta.json keeps for the dashboard's
+# retrain-trend chart — oldest trimmed first, same policy as MAX_TRAINING_HISTORY_ROWS.
+MAX_META_HISTORY_ENTRIES = 20
 
 
 def _row_features(row: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +193,19 @@ def _evaluate(pipe: Pipeline, X_eval: list[dict[str, Any]], y_eval: np.ndarray) 
     }
 
 
+def load_retrain_history(checkpoint_dir: Path | str) -> list[dict[str, Any]]:
+    """Read the rolling retrain-snapshot history from tstr_model_meta.json, if any — lets the
+    dashboard show a trend even on a run where retraining didn't fire this time."""
+    meta_path = Path(checkpoint_dir) / META_FILENAME
+    if not meta_path.exists():
+        return []
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return meta.get("history", [])
+
+
 def retrain_persisted_model(
     checkpoint_dir: Path | str,
     train_logs: list[dict[str, Any]],
@@ -241,12 +257,24 @@ def retrain_persisted_model(
 
     joblib.dump(pipe, model_path)
     trained_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    history = list(prev_meta.get("history", []))
+    history.append(
+        {
+            "model_version": model_version,
+            "trained_at": trained_at,
+            "cumulative_train_size": len(cumulative_rows),
+            "metrics_after": after["metrics"],
+        }
+    )
+    if len(history) > MAX_META_HISTORY_ENTRIES:
+        history = history[-MAX_META_HISTORY_ENTRIES:]
     meta = {
         "model_version": model_version,
         "trained_at": trained_at,
         "cumulative_train_size": len(cumulative_rows),
         "confusion_matrix_after": after["confusion_matrix"],
         "metrics_after": after["metrics"],
+        "history": history,
     }
     _write_json_atomic(meta_path, meta)
 
@@ -260,4 +288,5 @@ def retrain_persisted_model(
         "confusion_matrix_after": after["confusion_matrix"],
         "metrics_before": before["metrics"] if before else None,
         "metrics_after": after["metrics"],
+        "retrain_history": history,
     }

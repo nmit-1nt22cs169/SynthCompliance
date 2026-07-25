@@ -22,7 +22,7 @@ from synthcompliance_generators.scenario_engine import (
 from synthcompliance_taxonomy.controls import TAXONOMY
 from synthcompliance_taxonomy.roster import ASSET_LIST, USER_ROSTER
 from synthcompliance_validators.report import build_validation_report
-from synthcompliance_validators.tstr import retrain_persisted_model, run_tstr
+from synthcompliance_validators.tstr import load_retrain_history, retrain_persisted_model, run_tstr
 
 EventCb = Callable[[dict[str, Any]], None]
 
@@ -30,6 +30,27 @@ EventCb = Callable[[dict[str, Any]], None]
 def _emit(cb: EventCb | None, event: dict[str, Any]) -> None:
     if cb:
         cb(event)
+
+
+def _emit_stage(
+    cb: EventCb | None,
+    pipeline_stage: str,
+    status: str,
+    duration_ms: int = 0,
+) -> None:
+    """Structured stage-transition event, parallel to the free-text `_emit` messages above —
+    lets the frontend drive a live version of the Pipeline Flow stepper (normally sourced from
+    the on-disk validation_report.json, which only exists once a run finishes) without
+    colliding with subscribeJobEvents()'s `stage === 'complete'/'failed'` completion check."""
+    _emit(
+        cb,
+        {
+            "stage": "stage_update",
+            "pipeline_stage": pipeline_stage,
+            "status": status,
+            "duration_ms": duration_ms,
+        },
+    )
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -174,6 +195,15 @@ class LogGeneratorAgent:
         )
 
         provider = get_provider()
+        _emit(
+            on_event,
+            {
+                "stage": "generating",
+                "message": f"Using model: {provider.model}" if provider.available else "No LLM provider configured — deterministic generation",
+                "model": provider.model if provider.available else None,
+                "provider_available": provider.available,
+            },
+        )
         violations = corpus["violations"]
         log_by_id = {row["log_id"]: row for row in corpus["audit_logs"]}
 
@@ -457,6 +487,8 @@ class ValidatorRepairAgent:
             {"stage": "Output Datasets", "status": "skipped", "duration_ms": 0},
         ]
 
+        _emit_stage(on_event, "Validator", "running")
+
         for iteration in range(1, self.MAX_ITERS + 1):
             t0 = time.time()
             _emit(on_event, {"stage": "validating", "message": f"Validation pass {iteration}"})
@@ -481,6 +513,7 @@ class ValidatorRepairAgent:
             failing_violations = set(internal.get("failing_violation_ids", []))
             duration = int((time.time() - t0) * 1000)
             stages[2] = {"stage": "Validator", "status": "completed", "duration_ms": duration}
+            _emit_stage(on_event, "Validator", "completed", duration)
 
             schema_ok = report["validators"]["schema_validity"]["status"] != "fail"
             label_ok = report["validators"]["label_alignment"]["status"] != "fail"
@@ -500,6 +533,7 @@ class ValidatorRepairAgent:
                 },
             )
             stages[3] = {"stage": "Repair Loop", "status": "running", "duration_ms": 0}
+            _emit_stage(on_event, "Repair Loop", "running")
             t1 = time.time()
 
             # Repair logs: fix enums / timestamps / strip PII-like substrings
@@ -544,6 +578,7 @@ class ValidatorRepairAgent:
                 "status": "completed",
                 "duration_ms": int((time.time() - t1) * 1000),
             }
+            _emit_stage(on_event, "Repair Loop", "completed", stages[3]["duration_ms"])
             _emit(on_event, {"stage": "validating", "message": "Re-validating after repair"})
         else:
             _emit(
@@ -554,6 +589,11 @@ class ValidatorRepairAgent:
                     "failures": len(failing_logs) + len(failing_violations),
                 },
             )
+
+        # Repair Loop never ran (clean first pass) — emit its still-"skipped" state once so the
+        # frontend live stepper isn't left waiting on a status that will never otherwise arrive.
+        if stages[3]["status"] == "skipped":
+            _emit_stage(on_event, "Repair Loop", "skipped")
 
         report = build_validation_report(
             run_id=run_id,
@@ -760,6 +800,7 @@ class PipelineOrchestrator:
             import json
             previous_feedback = json.loads(feedback_state_path.read_text(encoding="utf-8"))
 
+        _emit_stage(on_event, "Scenario Composer", "running")
         t_compose0 = time.time()
         plan = self.composer.run(
             packs=packs,
@@ -770,6 +811,7 @@ class PipelineOrchestrator:
             on_event=on_event,
         )
         compose_duration_ms = int((time.time() - t_compose0) * 1000)
+        _emit_stage(on_event, "Scenario Composer", "completed", compose_duration_ms)
         if previous_feedback:
             weights = previous_feedback.get("violation_type_weights", {})
             if weights and plan.get("violation_type_counts"):
@@ -784,9 +826,11 @@ class PipelineOrchestrator:
                     boosted = {vtype: max(1, int(round(count * scale))) for vtype, count in boosted.items()}
                 plan["violation_type_counts"] = boosted
                 plan["feedback_weights"] = weights
+        _emit_stage(on_event, "Log Generator", "running")
         t_gen0 = time.time()
         corpus = self.generator.run(plan, on_event=on_event)
         gen_duration_ms = int((time.time() - t_gen0) * 1000)
+        _emit_stage(on_event, "Log Generator", "completed", gen_duration_ms)
         targets = {
             "audit_logs": n_logs,
             "violations": sum(plan["violation_type_counts"].values()),
@@ -802,6 +846,7 @@ class PipelineOrchestrator:
             on_event=on_event,
         )
 
+        _emit_stage(on_event, "TSTR Copilot", "running")
         t_tstr0 = time.time()
         tstr_metrics, tstr_train_logs, tstr_train_labels, tstr_eval_logs, tstr_eval_labels = self.tstr.run_tstr(
             corpus,
@@ -811,6 +856,7 @@ class PipelineOrchestrator:
             on_event=on_event,
         )
         tstr_duration_ms = int((time.time() - t_tstr0) * 1000)
+        _emit_stage(on_event, "TSTR Copilot", "completed", tstr_duration_ms)
         previous_lift = float(previous_feedback.get("last_recall_lift", 0.0)) if previous_feedback else 0.0
         current_lift = float(tstr_metrics.get("recall_lift", 0.0))
         feedback_update = update_feedback_state(
@@ -832,22 +878,35 @@ class PipelineOrchestrator:
         # retrain_persisted_model() docstring for why that (not warm_start) is what makes this
         # "learn" (logistic regression's loss is convex: warm_start only affects solver
         # iteration count, not the fitted result for a given dataset).
-        t_retrain0 = time.time()
+        checkpoint_dir = self.out_dir / "checkpoints"
+        retrain_enabled = _bool_env("RETRAIN_MODEL", False)
         improved = feedback_update["history_entry"]["improved"]
-        if _bool_env("RETRAIN_MODEL", False) and not improved:
+        # Exposed unconditionally so the UI can explain *why* this stage is skipped — "the
+        # feature is off" reads very differently from "it's on, but recall didn't regress."
+        tstr_metrics["retrain_enabled"] = retrain_enabled
+        if retrain_enabled and not improved:
+            _emit_stage(on_event, "Model Retraining", "running")
+            t_retrain0 = time.time()
             retrain_result = retrain_persisted_model(
-                self.out_dir / "checkpoints",
+                checkpoint_dir,
                 tstr_train_logs,
                 tstr_train_labels,
                 tstr_eval_logs,
                 tstr_eval_labels,
             )
+            retrain_duration_ms = int((time.time() - t_retrain0) * 1000)
             tstr_metrics.update(retrain_result)
             retrain_stage_status = "completed"
+            _emit_stage(on_event, "Model Retraining", "completed", retrain_duration_ms)
         else:
             tstr_metrics["retrained"] = False
+            # Even when this run didn't retrain, surface whatever trend history already exists
+            # on disk from prior retrains — otherwise the trend chart would only ever appear on
+            # runs that happen to retrain.
+            tstr_metrics["retrain_history"] = load_retrain_history(checkpoint_dir)
             retrain_stage_status = "skipped"
-        retrain_duration_ms = int((time.time() - t_retrain0) * 1000)
+            retrain_duration_ms = 0
+            _emit_stage(on_event, "Model Retraining", "skipped")
 
         report["tstr_metrics"] = tstr_metrics
         report["feedback_loop"] = {
@@ -885,6 +944,7 @@ class PipelineOrchestrator:
         if not control_classes:
             manifest["control_classes"] = list({v["violation_type"] for v in corpus["violations"]})
 
+        _emit_stage(on_event, "Output Datasets", "running")
         t_write0 = time.time()
         write_dataset_bundle(
             self.out_dir,
@@ -902,6 +962,7 @@ class PipelineOrchestrator:
         stages[6] = {"stage": "Output Datasets", "status": "completed", "duration_ms": write_duration_ms}
         report["pipeline_stages"] = stages
         write_json(self.out_dir / "validation_report.json", {k: v for k, v in report.items() if not k.startswith("_")})
+        _emit_stage(on_event, "Output Datasets", "completed", write_duration_ms)
         _emit(on_event, {"stage": "complete", "message": "Pipeline complete", "run_id": run_id, "job_id": job_id})
         return {
             "run_id": run_id,

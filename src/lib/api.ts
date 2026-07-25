@@ -16,6 +16,26 @@ export interface JobEvent {
   failures?: number;
   job_id?: string;
   run_id?: string;
+  // Present on "stage_update" events — a structured, live-updating parallel to the free-text
+  // messages above, used to drive the Pipeline Flow stepper during an active run.
+  pipeline_stage?: string;
+  status?: string;
+  duration_ms?: number;
+  // Present once on the first "generating" event, once the LLM provider has been resolved.
+  model?: string | null;
+  provider_available?: boolean;
+}
+
+export interface ConfigResponse {
+  provider: {
+    available: boolean;
+    use_self_hosted: boolean;
+    base_url: string;
+    model: string;
+    reachable: boolean;
+  };
+  retrain_model_enabled: boolean;
+  data_dir: string;
 }
 
 export interface CopilotResponse {
@@ -35,6 +55,12 @@ export interface CopilotResponse {
 export async function fetchTaxonomy(): Promise<TaxonomyResponse> {
   const res = await fetch(`${API_BASE}/api/taxonomy`);
   if (!res.ok) throw new Error('Failed to load taxonomy');
+  return res.json();
+}
+
+export async function fetchConfig(): Promise<ConfigResponse> {
+  const res = await fetch(`${API_BASE}/api/config`);
+  if (!res.ok) throw new Error('Failed to load backend config');
   return res.json();
 }
 

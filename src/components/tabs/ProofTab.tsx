@@ -1,5 +1,6 @@
 import { Badge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
+import { deriveRetrainTrend } from '../../lib/derive';
 import type { ConfusionMatrix, ValidationReport } from '../../types';
 
 interface ProofTabProps {
@@ -82,6 +83,9 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
       best: m.transformer_model === bestModel,
     });
   }
+
+  const retrainHistory = tstr?.retrain_history ?? [];
+  const retrainTrend = retrainHistory.length >= 2 ? deriveRetrainTrend(retrainHistory) : null;
 
   const maxRecall = Math.max(...bars.map((b) => b.value), 0.01);
   const bestValue = Math.max(...bars.map((b) => b.value));
@@ -227,6 +231,31 @@ export function ProofTab({ report, accent, jobActive }: ProofTabProps) {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {retrainTrend && (
+        <div className="glass-panel panel-pad">
+          <div className="panel-title">Retrain Trend — Recall Across Model Versions</div>
+          <p className="proof-desc">
+            Recall of the persisted classifier at each retrain, evaluated on that run's eval set —
+            shows whether the growing cumulative training set is actually improving the model over time.
+          </p>
+          <svg viewBox={`0 0 ${retrainTrend.w} ${retrainTrend.h}`} style={{ width: '100%', height: 200, overflow: 'visible' }}>
+            <path d={retrainTrend.areaPath} fill={accent} opacity={0.14} />
+            <path d={retrainTrend.linePath} fill="none" stroke={accent} strokeWidth={2.5} />
+            {retrainTrend.points.map((p, i) => (
+              <g key={i}>
+                <circle cx={p.x} cy={p.y} r={4} fill={accent} stroke="var(--surface-hole)" strokeWidth={2} />
+                <text x={p.x} y={p.labelY} fontSize={11} fill="var(--text-tertiary)" textAnchor="middle">
+                  {p.durationLabel}
+                </text>
+                <text x={p.x} y={retrainTrend.axisY} fontSize={11} fill="var(--text-secondary)" textAnchor="middle">
+                  {p.shortName}
+                </text>
+              </g>
+            ))}
+          </svg>
         </div>
       )}
     </div>

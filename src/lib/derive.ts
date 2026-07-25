@@ -1,5 +1,6 @@
 import { formatDuration } from './format';
-import type { AuditLog, ValidationReport, ValidatorStatus, Violation } from '../types';
+import type { JobEvent } from './api';
+import type { AuditLog, PipelineStage, RetrainHistoryEntry, ValidationReport, ValidatorStatus, Violation } from '../types';
 
 export interface Kpi {
   label: string;
@@ -198,6 +199,37 @@ export function deriveLineChart(report: ValidationReport): LineChart {
   return { w, h, linePath, areaPath, points, axisY: h - 12 };
 }
 
+/** Recall trend across persisted-model retrain versions, reusing the same LineChart shape (and
+ * SVG rendering JSX) as deriveLineChart's stage-duration curve — a different x/y meaning, same
+ * hand-rolled chart primitive, no new charting code. */
+export function deriveRetrainTrend(history: RetrainHistoryEntry[]): LineChart {
+  const w = 640;
+  const h = 200;
+  const padL = 20;
+  const padR = 20;
+  const padT = 30;
+  const padB = 40;
+  const values = history.map((h) => h.metrics_after.recall);
+  const max = Math.max(...values, 0.01);
+  const n = values.length;
+  const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const plotBottom = h - padB;
+  const points: LineChartPoint[] = values.map((v, i) => {
+    const x = padL + i * stepX;
+    const y = padT + (plotBottom - padT) * (1 - v / max);
+    return {
+      x: +x.toFixed(1),
+      y: +y.toFixed(1),
+      shortName: `v${history[i].model_version}`,
+      durationLabel: v.toFixed(2),
+      labelY: +(y - 12).toFixed(1)
+    };
+  });
+  const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
+  const areaPath = n > 0 ? `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z` : '';
+  return { w, h, linePath, areaPath, points, axisY: h - 12 };
+}
+
 export interface GanttStage {
   stage: string;
   status: string;
@@ -213,6 +245,38 @@ export function deriveGantt(report: ValidationReport): GanttStage[] {
     durationMs: s.duration_ms,
     pct: Math.max(1, Math.round((s.duration_ms / total) * 100))
   }));
+}
+
+const CANONICAL_STAGES = [
+  'Scenario Composer',
+  'Log Generator',
+  'Validator',
+  'Repair Loop',
+  'TSTR Copilot',
+  'Model Retraining',
+  'Output Datasets'
+] as const;
+
+const VALID_STAGE_STATUSES = new Set(['completed', 'running', 'failed', 'skipped']);
+
+/** Folds "stage_update" SSE events into the same PipelineStage[] shape as the on-disk report,
+ * so the Pipeline Flow panel can render live during a run instead of showing stale data from
+ * the previous run (report.pipeline_stages only exists once a run finishes writing files). */
+export function deriveLiveStages(jobEvents: JobEvent[]): PipelineStage[] {
+  const byName = new Map<string, PipelineStage>(
+    CANONICAL_STAGES.map((stage) => [stage, { stage, status: 'skipped', duration_ms: 0 }])
+  );
+  for (const ev of jobEvents) {
+    if (ev.stage !== 'stage_update' || !ev.pipeline_stage) continue;
+    if (!byName.has(ev.pipeline_stage)) continue;
+    const status = VALID_STAGE_STATUSES.has(ev.status ?? '') ? (ev.status as PipelineStage['status']) : 'skipped';
+    byName.set(ev.pipeline_stage, {
+      stage: ev.pipeline_stage,
+      status,
+      duration_ms: ev.duration_ms ?? 0
+    });
+  }
+  return CANONICAL_STAGES.map((stage) => byName.get(stage)!);
 }
 
 export interface SeverityCounts {

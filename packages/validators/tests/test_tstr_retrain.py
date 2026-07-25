@@ -6,8 +6,10 @@ sys.path.insert(0, str(ROOT))
 
 from synthcompliance_validators.tstr import (
     HISTORY_FILENAME,
+    MAX_META_HISTORY_ENTRIES,
     META_FILENAME,
     MODEL_FILENAME,
+    load_retrain_history,
     load_training_history,
     retrain_persisted_model,
 )
@@ -68,3 +70,29 @@ def test_retrain_persisted_model_creates_checkpoint_and_grows_cumulative_size(tm
     history_rows, history_labels = load_training_history(checkpoint_dir)
     assert len(history_rows) == 55
     assert len(history_labels) == 55
+
+    # Rolling retrain-snapshot history (for the dashboard's trend chart) grows with each retrain.
+    assert [h["model_version"] for h in first["retrain_history"]] == [1]
+    assert [h["model_version"] for h in second["retrain_history"]] == [1, 2]
+    assert load_retrain_history(checkpoint_dir) == second["retrain_history"]
+
+
+def test_load_retrain_history_empty_when_no_checkpoint_exists(tmp_path):
+    assert load_retrain_history(tmp_path / "checkpoints") == []
+
+
+def test_retrain_history_trims_oldest_first_past_the_cap(tmp_path):
+    checkpoint_dir = tmp_path / "checkpoints"
+    eval_rows, eval_labels = _rows(20, 0.2)
+
+    result = None
+    for _ in range(MAX_META_HISTORY_ENTRIES + 3):
+        rows, labels = _rows(10, 0.2)
+        result = retrain_persisted_model(checkpoint_dir, rows, labels, eval_rows, eval_labels)
+
+    assert result is not None
+    assert len(result["retrain_history"]) == MAX_META_HISTORY_ENTRIES
+    versions = [h["model_version"] for h in result["retrain_history"]]
+    # Oldest (versions 1-3) trimmed; the most recent MAX_META_HISTORY_ENTRIES remain, newest last.
+    assert versions[0] == 4
+    assert versions[-1] == MAX_META_HISTORY_ENTRIES + 3

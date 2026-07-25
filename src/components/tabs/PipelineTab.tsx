@@ -1,9 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../Badge';
-import { deriveGantt, deriveLineChart } from '../../lib/derive';
-import { fetchTaxonomy, getJobStatus, startJob, subscribeJobEvents, type JobEvent } from '../../lib/api';
+import { deriveGantt, deriveLineChart, deriveLiveStages } from '../../lib/derive';
+import { fetchConfig, fetchTaxonomy, getJobStatus, startJob, subscribeJobEvents, type ConfigResponse, type JobEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/format';
 import type { JobConfig, ValidationReport } from '../../types';
+
+// Static explanations for stages that legitimately skip — without these, "skipped" reads as
+// "something didn't happen" rather than the (usually good) reason it didn't need to.
+function stageSkipCaption(stageName: string, report: ValidationReport | null): string | null {
+  if (!report) return null;
+  if (stageName === 'Repair Loop') {
+    return 'All validators passed on the first pass — no repair needed.';
+  }
+  if (stageName === 'Model Retraining') {
+    if (!report.tstr_metrics?.retrain_enabled) {
+      return 'Retraining is disabled (RETRAIN_MODEL not set).';
+    }
+    if (report.feedback_loop?.improved) {
+      const lift = report.tstr_metrics?.recall_lift;
+      const liftText = lift != null ? ` (recall lift ${lift >= 0 ? '+' : ''}${(lift * 100).toFixed(1)} pts)` : '';
+      return `Recall held steady or improved vs. last run${liftText} — retraining not needed.`;
+    }
+    return null;
+  }
+  return null;
+}
 
 const INDUSTRIES = [
   { id: 'financial_services', label: 'Financial Services' },
@@ -60,6 +81,10 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   const [outcome, setOutcome] = useState<'success' | 'failed' | null>(null);
   const [startRunId, setStartRunId] = useState<string | null>(null);
   const [, forceTick] = useState(0);
+  const [activeModel, setActiveModel] = useState<{ model: string | null; available: boolean } | null>(null);
+  const [backendConfig, setBackendConfig] = useState<ConfigResponse | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
   const lastStageRef = useRef<string | null>(null);
   const receivedAnyEventRef = useRef(false);
   const jobLogRef = useRef<HTMLDivElement | null>(null);
@@ -81,6 +106,27 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         setTaxonomyClasses([]);
       })
       .finally(() => setTaxonomyLoading(false));
+  }, []);
+
+  const refreshConfig = () => {
+    setConfigLoading(true);
+    fetchConfig()
+      .then((c) => {
+        setBackendConfig(c);
+        setConfigError(null);
+      })
+      .catch((e) => {
+        setConfigError(e instanceof Error ? e.message : 'Failed to load backend config');
+        setBackendConfig(null);
+      })
+      .finally(() => setConfigLoading(false));
+  };
+
+  // Fetched once for this component's lifetime, not per tab-switch — all tabs stay mounted
+  // (see CLAUDE.md), and provider config rarely changes mid-session. `refreshConfig` is exposed
+  // via a manual button for the rare case it does (e.g. backend restarted with new env vars).
+  useEffect(() => {
+    refreshConfig();
   }, []);
 
   const isSynced = outcome === 'success' && !!report?.run_id && report.run_id !== startRunId;
@@ -130,6 +176,9 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
         receivedAnyEventRef.current = true;
         lastStageRef.current = ev.stage;
         setJobEvents((prev) => [...prev, ev]);
+        if (ev.provider_available !== undefined) {
+          setActiveModel({ model: ev.model ?? null, available: ev.provider_available });
+        }
       },
       () => {
         setRunning(false);
@@ -151,6 +200,7 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
     setJobEvents([]);
     setFinishedAt(null);
     setOutcome(null);
+    setActiveModel(null);
     setStartRunId(report?.run_id ?? null);
     const start = Date.now();
     setStartedAt(start);
@@ -210,9 +260,50 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
   const lineChart = report ? deriveLineChart(report) : null;
   const gantt = report ? deriveGantt(report) : null;
   const latest = jobEvents[jobEvents.length - 1];
+  const showLiveStages = phase === 'running' || phase === 'finalizing';
+  const liveStages = useMemo(() => deriveLiveStages(jobEvents), [jobEvents]);
+  const displayStages = showLiveStages ? liveStages : report?.pipeline_stages ?? null;
 
   return (
     <div>
+      <div className="glass-panel tab-panel panel-pad">
+        <div className="job-feed-header">
+          <div className="panel-title" style={{ marginBottom: 0 }}>
+            Backend Configuration
+          </div>
+          <button type="button" className="chip" onClick={refreshConfig} disabled={configLoading}>
+            {configLoading ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
+        {configError && <div className="wizard-error">{configError}</div>}
+        {backendConfig && (
+          <div className="proof-metrics" style={{ marginTop: 12 }}>
+            <div className="proof-metric">
+              <span className="proof-metric-label">Provider</span>
+              <span className="proof-metric-value">
+                {backendConfig.provider.available
+                  ? backendConfig.provider.use_self_hosted
+                    ? 'Self-hosted / Ollama'
+                    : 'NVIDIA Cloud'
+                  : 'None (deterministic)'}
+              </span>
+            </div>
+            <div className="proof-metric">
+              <span className="proof-metric-label">Model</span>
+              <span className="proof-metric-value">{backendConfig.provider.available ? backendConfig.provider.model : '—'}</span>
+            </div>
+            <div className="proof-metric">
+              <span className="proof-metric-label">Endpoint reachable</span>
+              <Badge status={backendConfig.provider.available ? (backendConfig.provider.reachable ? 'pass' : 'fail') : 'skipped'} />
+            </div>
+            <div className="proof-metric">
+              <span className="proof-metric-label">Retraining</span>
+              <span className="proof-metric-value">{backendConfig.retrain_model_enabled ? 'On' : 'Off'}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="glass-panel tab-panel wizard-panel">
         <div className="panel-title">Pipeline Wizard</div>
         <div className="wizard-grid">
@@ -345,6 +436,13 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
                   </span>
                 </div>
               )}
+              {activeModel && (
+                <div className="job-timer">
+                  <span className="job-timer-status">
+                    {activeModel.available ? `Model: ${activeModel.model}` : 'No provider — deterministic generation'}
+                  </span>
+                </div>
+              )}
             </div>
             {latest && (
               <div className="job-latest">
@@ -408,27 +506,40 @@ export function PipelineTab({ report, accent, onJobActiveChange, onJobComplete }
               </div>
             </div>
           )}
+        </>
+      )}
 
-          <div className="glass-panel panel-pad">
-            <div className="panel-title" style={{ marginBottom: 16 }}>
-              Pipeline Flow
-            </div>
-            {report.pipeline_stages.map((s) => (
-              <div className={`pipeline-row${s.status === 'running' ? ' pipeline-row-running' : ''}`} key={s.stage}>
-                <span className="pipeline-stage-name">{s.stage}</span>
-                <div className="pipeline-row-right">
-                  <span className="pipeline-duration">{formatDuration(s.duration_ms)}</span>
-                  <Badge status={s.status} />
-                </div>
-              </div>
-            ))}
-            {report.repair_log && report.repair_log.repaired_log_ids.length > 0 && (
-              <div className="repair-note">
-                Repair loop fixed {report.repair_log.repaired_log_ids.length} row(s) in {report.repair_log.iterations} iteration(s).
-              </div>
+      {displayStages && (
+        <div className="glass-panel panel-pad">
+          <div className="panel-title" style={{ marginBottom: 16 }}>
+            Pipeline Flow
+            {showLiveStages && (
+              <span className="job-timer-status job-timer-status-running" style={{ marginLeft: 10, fontSize: 'var(--text-2xs)' }}>
+                live
+              </span>
             )}
           </div>
-        </>
+          {displayStages.map((s) => {
+            const caption = !showLiveStages ? stageSkipCaption(s.stage, report) : null;
+            return (
+              <div key={s.stage}>
+                <div className={`pipeline-row${s.status === 'running' ? ' pipeline-row-running' : ''}`}>
+                  <span className="pipeline-stage-name">{s.stage}</span>
+                  <div className="pipeline-row-right">
+                    <span className="pipeline-duration">{formatDuration(s.duration_ms)}</span>
+                    <Badge status={s.status} />
+                  </div>
+                </div>
+                {s.status === 'skipped' && caption && <div className="repair-note">{caption}</div>}
+              </div>
+            );
+          })}
+          {!showLiveStages && report?.repair_log && report.repair_log.repaired_log_ids.length > 0 && (
+            <div className="repair-note">
+              Repair loop fixed {report.repair_log.repaired_log_ids.length} row(s) in {report.repair_log.iterations} iteration(s).
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

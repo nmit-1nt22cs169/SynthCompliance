@@ -108,6 +108,13 @@ export interface RetrainMetrics {
   accuracy: number;
 }
 
+export interface RetrainHistoryEntry {
+  model_version: number;
+  trained_at: string;
+  cumulative_train_size: number;
+  metrics_after: RetrainMetrics;
+}
+
 export interface TstrMetrics {
   baseline_rare_recall: number;
   synthetic_trained_rare_recall: number;
@@ -121,12 +128,17 @@ export interface TstrMetrics {
   notes?: string;
   // Persisted-model retraining (RETRAIN_MODEL=true, only fires when recall regressed/didn't
   // improve vs. the previous run — see feedback_loop.improved). Absent/false when disabled
-  // or not triggered this run.
+  // or not triggered this run. `retrain_enabled` distinguishes "feature off" from "feature on,
+  // not triggered this run" — always set, unlike `retrained` which only means "fired this run."
+  retrain_enabled?: boolean;
   retrained?: boolean;
   model_version?: number;
   cumulative_train_size?: number;
   trained_at?: string;
   post_retrain_recall?: number;
+  // Rolling history of past retrain snapshots, oldest first — populated even on runs that
+  // didn't retrain this time, so a trend chart isn't limited to retrain-triggering runs only.
+  retrain_history?: RetrainHistoryEntry[];
   // Before = the previous persisted checkpoint (if any) evaluated on this run's eval set;
   // null on the very first retrain, since there's no prior checkpoint to compare against.
   confusion_matrix_before?: ConfusionMatrix | null;

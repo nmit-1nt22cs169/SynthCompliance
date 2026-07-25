@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +30,36 @@ for p in (
         sys.path.insert(0, sp)
 
 from synthcompliance_agents.pipeline import PipelineOrchestrator, TSTRCopilotAgent  # noqa: E402
+from synthcompliance_generators.provider import get_provider  # noqa: E402
 from synthcompliance_taxonomy.controls import CONTROL_CLASSES, REGULATION_PACKS, TAXONOMY  # noqa: E402
 
 DATA_DIR = Path(os.getenv("SYNTH_DATA_DIR", str(ROOT / "public" / "data")))
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    """Matches provider.py's helper of the same name — no central config module in this repo,
+    env vars are read ad hoc at point of use."""
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _check_reachable(base_url: str, api_key: str, timeout: float = 2.0) -> bool:
+    """Any HTTP response — even an auth error — proves the network path is open; only a
+    connection failure/timeout means the configured host is actually unreachable. This is the
+    check that would have caught a misconfigured port (talking to the wrong service, or nothing
+    at all) immediately instead of requiring a manual restart-and-inspect."""
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/models")
+    if api_key:
+        req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        urllib.request.urlopen(req, timeout=timeout)
+        return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:
+        return False
 
 app = FastAPI(title="SynthCompliance API", version="0.1.0")
 app.add_middleware(
@@ -76,6 +105,22 @@ def taxonomy() -> dict[str, Any]:
         "packs": list(REGULATION_PACKS),
         "control_classes": list(CONTROL_CLASSES),
         "taxonomy": TAXONOMY,
+    }
+
+
+@app.get("/api/config")
+def config() -> dict[str, Any]:
+    provider = get_provider()
+    return {
+        "provider": {
+            "available": provider.available,
+            "use_self_hosted": provider.use_self_hosted,
+            "base_url": provider.base_url,
+            "model": provider.model,
+            "reachable": _check_reachable(provider.base_url, provider.api_key) if provider.available else False,
+        },
+        "retrain_model_enabled": _bool_env("RETRAIN_MODEL", False),
+        "data_dir": str(DATA_DIR),
     }
 
 
