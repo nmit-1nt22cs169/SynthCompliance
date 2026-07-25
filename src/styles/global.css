@@ -743,10 +743,16 @@ select:focus-visible {
 /* Confusion matrix (ProofTab) is only ever a small fixed 2x2 grid squeezed into half a
    .proof-grid column — table-layout: fixed + width: 100% makes it fit its column exactly
    (wrapping "Predicted violation" onto two lines if needed) instead of overflowing/scrolling,
-   which the Risk Matrix elsewhere doesn't need since it isn't column-constrained like this. */
+   which the Risk Matrix elsewhere doesn't need since it isn't column-constrained like this.
+   min-width: 0 is required, not cosmetic: .data-table sets `min-width: 720px` (its normal
+   full-width data-grid use elsewhere needs that floor), which otherwise wins over this rule's
+   width: 100% regardless of container size — min-width always overrides width when they
+   conflict, so without resetting it here this table could never shrink below 720px no matter
+   how narrow its grid column is. */
 .confusion-matrix-table {
   table-layout: fixed;
   width: 100%;
+  min-width: 0;
 }
 .confusion-matrix-table th {
   font-size: var(--text-2xs);
