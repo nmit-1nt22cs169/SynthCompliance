@@ -2,8 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadDashboardData } from '../lib/dataLoader';
 import type { DashboardData } from '../types';
 
+// Polls the 4 output files under public/data/ (see CLAUDE.md "Data flow") — no push channel for
+// data itself, only job progress goes over SSE. Poll faster while a job is active so the tabs
+// feel responsive right after a run finishes, and back off once idle to avoid needless fetches.
 const REFRESH_INTERVAL_MS = 9000;
 const FAST_POLL_MS = 2000;
+// Keeps the "Syncing live data…" label visible for a minimum stretch so a fast successful
+// refresh doesn't just flicker.
 const REFRESHING_INDICATOR_MS = 1200;
 
 interface DashboardDataState {

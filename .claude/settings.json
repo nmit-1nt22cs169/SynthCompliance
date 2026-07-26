@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(lsof -tiTCP:8000 -sTCP:LISTEN)",
+      "Bash(xargs -r kill)",
+      "Bash(lsof -tiTCP:5173 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:8000 -sTCP:LISTEN -n -P)",
+      "Bash(lsof -iTCP:5173 -sTCP:LISTEN -n -P)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s http://localhost:5173/ -o /dev/null -w \"frontend: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:8000/api/config)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:5173/src/lib/derive.ts)",
+      "Bash(curl -s http://localhost:5173/src/styles/global.css -o /tmp/live.css)",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://localhost:5173/src/components/tabs/ProofTab.tsx)",
+      "Bash(curl -s http://localhost:5173/src/components/tabs/PipelineTab.tsx)",
+      "Bash(curl -s http://localhost:8000/api/jobs/job_2a56f1a54d)",
+      "Bash(pkill -f \"uvicorn app.main:app\")",
+      "Bash(pkill -f \"node_modules/.bin/vite\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5174/)",
+      "Bash(curl -s http://localhost:5174/src/components/InfoTip.tsx)",
+      "Bash(jobs -l)"
+    ]
+  }
+}

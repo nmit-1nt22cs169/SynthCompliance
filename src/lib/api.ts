@@ -16,6 +16,31 @@ export interface JobEvent {
   failures?: number;
   job_id?: string;
   run_id?: string;
+  // Present on "stage_update" events — a structured, live-updating parallel to the free-text
+  // messages above, used to drive the Pipeline Flow stepper during an active run.
+  pipeline_stage?: string;
+  status?: string;
+  duration_ms?: number;
+  // Present once on the first "generating" event, once the LLM provider has been resolved.
+  model?: string | null;
+  provider_available?: boolean;
+}
+
+export interface ProviderStatus {
+  available: boolean;
+  use_self_hosted: boolean;
+  base_url: string;
+  model: string;
+  reachable: boolean;
+}
+
+export interface ConfigResponse {
+  provider: ProviderStatus;
+  retrain_model_enabled: boolean;
+  // Present only when RETRAIN_MODEL=true — the second model slot for the (future)
+  // retrain-target/Copilot path (any LLM, not tied to a specific one).
+  retrain_provider?: ProviderStatus;
+  data_dir: string;
 }
 
 export interface CopilotResponse {
@@ -30,11 +55,43 @@ export interface CopilotResponse {
     explanation: string;
   }[];
   grounding: string;
+  // "rule_based" (default) or "retrain-model-v{N}" once a fine-tuned retrain-target model has
+  // been promoted and is rephrasing answers — see TSTRCopilotAgent.answer_with_rephrase().
+  model_backend: string;
+}
+
+export interface RetrainModelEval {
+  citation_accuracy: number;
+  groundedness: number;
+}
+
+export interface RetrainModelHistoryEntry {
+  model_version: number;
+  trained_at: string;
+  cumulative_train_size: number;
+  eval: RetrainModelEval;
+  status: 'candidate' | 'active' | 'rejected';
+}
+
+export interface RetrainModelSnapshot extends RetrainModelHistoryEntry {
+  checkpoint_path: string;
+  base_model: string;
+  history: RetrainModelHistoryEntry[];
+}
+
+export interface RetrainModelStatusResponse {
+  snapshot: RetrainModelSnapshot | null;
 }
 
 export async function fetchTaxonomy(): Promise<TaxonomyResponse> {
   const res = await fetch(`${API_BASE}/api/taxonomy`);
   if (!res.ok) throw new Error('Failed to load taxonomy');
+  return res.json();
+}
+
+export async function fetchConfig(): Promise<ConfigResponse> {
+  const res = await fetch(`${API_BASE}/api/config`);
+  if (!res.ok) throw new Error('Failed to load backend config');
   return res.json();
 }
 
@@ -47,8 +104,7 @@ export async function startJob(config: JobConfig): Promise<{ job_id: string; sta
       control_classes: config.control_classes.length ? config.control_classes : null,
       scenario_mix: config.scenario_mix,
       n_logs: config.n_logs,
-      industry: config.industry,
-      use_seed_fallback: config.use_seed_fallback
+      industry: config.industry
     })
   });
   if (!res.ok) {
@@ -58,19 +114,17 @@ export async function startJob(config: JobConfig): Promise<{ job_id: string; sta
   return res.json();
 }
 
-export async function loadSeedDataset(): Promise<{ job_id: string; status: string }> {
-  const res = await fetch(`${API_BASE}/api/seed`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to load seed dataset');
+export async function getJobStatus(jobId: string): Promise<{ status: string; job_id: string }> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Job not found: ${res.status}`);
   return res.json();
 }
 
-export function subscribeJobEvents(
-  jobId: string,
-  onEvent: (ev: JobEvent) => void,
-  onDone: () => void
-): () => void {
-  const url = `${API_BASE}/api/jobs/${jobId}/events`;
-  const es = new EventSource(url);
+/** Shared SSE subscription — used for both the main pipeline job stream and the (separate)
+ * retrain-model job stream, which mirrors the same replay-from-start/completion semantics on a
+ * different path. */
+function subscribeSSE(path: string, onEvent: (ev: JobEvent) => void, onDone: () => void): () => void {
+  const es = new EventSource(`${API_BASE}${path}`);
 
   es.onmessage = (msg) => {
     try {
@@ -91,6 +145,39 @@ export function subscribeJobEvents(
   };
 
   return () => es.close();
+}
+
+export function subscribeJobEvents(jobId: string, onEvent: (ev: JobEvent) => void, onDone: () => void): () => void {
+  return subscribeSSE(`/api/jobs/${jobId}/events`, onEvent, onDone);
+}
+
+export function subscribeRetrainModelJobEvents(
+  jobId: string,
+  onEvent: (ev: JobEvent) => void,
+  onDone: () => void
+): () => void {
+  return subscribeSSE(`/api/retrain-model/jobs/${jobId}/events`, onEvent, onDone);
+}
+
+export async function startRetrainModelJob(): Promise<{ job_id: string; status: string }> {
+  const res = await fetch(`${API_BASE}/api/retrain-model/start`, { method: 'POST' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || 'Failed to start retrain-model job');
+  }
+  return res.json();
+}
+
+export async function getRetrainModelJobStatus(jobId: string): Promise<{ status: string; job_id: string }> {
+  const res = await fetch(`${API_BASE}/api/retrain-model/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Retrain-model job not found: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchRetrainModelStatus(): Promise<RetrainModelStatusResponse> {
+  const res = await fetch(`${API_BASE}/api/retrain-model/status`);
+  if (!res.ok) throw new Error('Failed to load retrain-model status');
+  return res.json();
 }
 
 export async function queryCopilot(query: string): Promise<CopilotResponse> {

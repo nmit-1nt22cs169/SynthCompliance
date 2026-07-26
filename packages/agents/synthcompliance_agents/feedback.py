@@ -1,3 +1,7 @@
+"""Cross-run adaptive feedback: persists per-violation-type weights that bias the next run's
+scenario mix toward types seen before (mild reinforcement) and brand-new types (stronger boost),
+so repeated runs gradually cover more of the taxonomy without manual tuning."""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +20,12 @@ def update_feedback_state(
     status: str,
     previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Merge this run's outcome into feedback_state.json and return the updated weights.
+
+    New violation types get a 1.15x weight (first-seen boost); types already seen before get a
+    smaller 1.05x nudge each time they recur. Weights only ever grow (floored at 1.0), so this is
+    cumulative coverage pressure across runs, not a rolling average.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     state_path = out_dir / "feedback_state.json"

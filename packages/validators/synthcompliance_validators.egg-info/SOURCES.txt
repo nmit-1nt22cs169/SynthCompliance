@@ -5,11 +5,16 @@ synthcompliance_validators/golden_fidelity.py
 synthcompliance_validators/label_alignment.py
 synthcompliance_validators/pii_leakage.py
 synthcompliance_validators/report.py
+synthcompliance_validators/retrain_model.py
 synthcompliance_validators/scenario_coverage.py
 synthcompliance_validators/schema_validity.py
 synthcompliance_validators/tstr.py
+synthcompliance_validators/tstr_transformer.py
 synthcompliance_validators.egg-info/PKG-INFO
 synthcompliance_validators.egg-info/SOURCES.txt
 synthcompliance_validators.egg-info/dependency_links.txt
 synthcompliance_validators.egg-info/requires.txt
 synthcompliance_validators.egg-info/top_level.txt
+tests/test_duplicate_check.py
+tests/test_retrain_model.py
+tests/test_tstr_retrain.py

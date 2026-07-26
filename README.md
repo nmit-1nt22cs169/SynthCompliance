@@ -18,14 +18,6 @@ npm run dev
 
 Open http://localhost:5173 — see **[docs/DEMO.md](./docs/DEMO.md)** for the full judge demo script.
 
-### Instant demo (no API)
-
-```bash
-npm run dev:mock1 && npm run dev
-```
-
-Or load the pre-built seed: **Pipeline → Load 200-record Seed**.
-
 ## Architecture
 
 | Layer | Path |
@@ -34,9 +26,9 @@ Or load the pre-built seed: **Pipeline → Load 200-record Seed**.
 | FastAPI + SSE jobs | `services/api/` |
 | 4 agents | `packages/agents/` |
 | Generators + Nemotron provider | `packages/generators/` |
-| 5 validators + TSTR + golden fidelity | `packages/validators/` |
+| 5 validators + TSTR + golden fidelity + persisted-model retraining | `packages/validators/` |
 | SOX+GDPR taxonomy + golden set | `packages/taxonomy/` |
-| 200-record fallback | `data/seeds/` |
+| Optional: DistilBERT/DeBERTa TSTR comparison (H100/Slurm, out-of-band) | `cluster/` — see [cluster/README.md](./cluster/README.md) |
 
 ## Output contract
 
@@ -55,10 +47,15 @@ See **[DATA_CONTRACT.md](./DATA_CONTRACT.md)** for field-level specs.
 
 ```bash
 npm run dev:api      # FastAPI on :8000
-npm run seed         # Regenerate data/seeds/ (200 records)
 npm run golden       # Regenerate packages/taxonomy/golden/
 npm run build        # Production build
 npm run lint         # oxlint
+```
+
+## Testing
+
+```bash
+cd packages/agents && python -m pytest tests/ -v
 ```
 
 ## Docker
@@ -67,6 +64,25 @@ npm run lint         # oxlint
 cd infra/docker && cp .env.example .env && docker compose up --build
 ```
 
-## Nemotron (optional)
+## Nemotron
 
-Set `NVIDIA_API_KEY` for NVIDIA Build API polish, or `USE_SELF_HOSTED=true` + `NIM_BASE_URL` for self-hosted NIM. Offline deterministic generation works without keys.
+`log_id`, `timestamp`, and taxonomy fields (`violation_id`/`control_id`/`severity`/`violation_type`) are
+always deterministic — they're referential keys other rows depend on. Everything that reads as *content*
+(`user_id`/`role`, `resource`/`system`, `action`, `outcome`, `sensitivity`, violation `explanation`) is
+written by an LLM when a provider is configured, with a deterministic fallback per batch on failure. With
+no provider configured, generation still runs end-to-end, but those content fields fall back to randomly
+assigned deterministic values instead of LLM-written ones — the dashboard's "Fields LLM-generated" KPI
+shows 0 in that case, honestly.
+
+Set `PRIVATE_API_KEY` for a hosted API (e.g. NVIDIA Build), or `USE_SELF_HOSTED=true` + `LOCAL_BASE_URL`
+for a self-hosted NIM — this also covers a local Ollama instance, since Ollama serves an OpenAI-compatible
+API on `:11434/v1` and needs no code changes, just `LOCAL_BASE_URL=http://localhost:11434/v1` (or
+`http://host.docker.internal:11434/v1` from inside Docker) and `LOCAL_LLM_MODEL=<a pulled model>`.
+
+## Retraining (optional, `RETRAIN_MODEL=true`)
+
+When a run's recall lift doesn't improve on the previous run, the pipeline can retrain two things on
+the accumulated history instead of a fresh fit: the TSTR classifier (in-process, sklearn) and a
+retrain-target model that rephrases Copilot answers (LoRA fine-tune via `mlx-lm`, Apple-Silicon-only,
+run as a separate subprocess — `scripts/finetune_retrain_model.py`). See CLAUDE.md's "Persisted
+retraining" section for details and the manual-trigger API endpoints.

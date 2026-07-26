@@ -12,6 +12,11 @@ from .scenario_engine import ACTION_FOR_TYPE, EXPLANATIONS, ScenarioEngine, _iso
 
 
 def generate_corpus(plan: dict[str, Any], rng_seed_engine: ScenarioEngine) -> dict[str, Any]:
+    """Deterministic scaffold pass: consumes the plan's id pool to build audit_logs/violations/
+    qa_pairs with taxonomy-correct fields (LogGeneratorAgent overwrites the LLM-eligible content
+    fields afterward). Fill order matters — violations claim log_ids first, then false_positive/
+    suspicious/normal fill the remainder — so every violation_type gets its requested count before
+    the pool can run out."""
     rng = rng_seed_engine.rng
     n = plan["n_logs"]
     counts = plan["scenario_counts"]

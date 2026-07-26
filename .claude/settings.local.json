@@ -3,21 +3,20 @@
     "allow": [
       "Bash(git init *)",
       "Bash(git commit -m ' *)",
-      "Bash(mkdir -p /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_1 /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_2 /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_3)",
-      "Bash(cp /Users/zenitsu/Documents/Hackathon/dashboard/public/data/*.jsonl /Users/zenitsu/Documents/Hackathon/dashboard/public/data/*.json /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_1/)",
-      "Bash(touch /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_2/.gitkeep /Users/zenitsu/Documents/Hackathon/dashboard/mockData/mockData_3/.gitkeep)",
-      "Bash(rm -f /Users/zenitsu/Documents/Hackathon/dashboard/public/data/*.jsonl /Users/zenitsu/Documents/Hackathon/dashboard/public/data/*.json)",
-      "Bash(touch /Users/zenitsu/Documents/Hackathon/dashboard/public/data/.gitkeep)",
       "Bash(git add *)",
-      "Bash(python3 -c \"import json; print\\(sorted\\(json.loads\\(open\\('mockData/mockData_2/audit_logs.jsonl'\\).readline\\(\\)\\).keys\\(\\)\\)\\)\")",
-      "Bash(python3 -c \"import json; print\\(sorted\\(json.loads\\(open\\('mockData/mockData_2/qa_pairs.jsonl'\\).readline\\(\\)\\).keys\\(\\)\\)\\)\")",
-      "Bash(python3 -c \"import json; print\\(sorted\\(json.loads\\(open\\('mockData/mockData_2/violations.jsonl'\\).readline\\(\\)\\).keys\\(\\)\\)\\)\")",
       "Bash(npm run *)",
-      "Bash(curl -s -o /tmp/resp2.html -w \"%{http_code}\\\\n\" http://localhost:5199/data/validation_report.json)",
       "Read(//tmp/**)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5199/)",
-      "Bash(kill %1)",
-      "Bash(kill 10851 10890)"
+      "Bash(kill 24137)",
+      "Bash(lsof -iTCP:8000 -sTCP:LISTEN -n -P)",
+      "Bash(export USE_SELF_HOSTED=true)",
+      "Bash(export NIM_BASE_URL=http://localhost:11434/v1)",
+      "Bash(export NIM_API_KEY=ollama)",
+      "Bash(export NEMOTRON_MODEL=nemotron-3-nano:4b)",
+      "Bash(export SYNTH_DATA_DIR=./public/data)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s http://localhost:5173/ -o /dev/null -w \"frontend: %{http_code}\\\\n\")",
+      "Bash(curl -s \"http://localhost:5173/src/components/tabs/PipelineTab.tsx\")"
     ]
   }
 }

@@ -1,4 +1,5 @@
-import type { ValidationReport, ValidatorStatus } from '../types';
+import type { JobEvent, RetrainModelHistoryEntry } from './api';
+import type { AuditLog, PipelineStage, RetrainHistoryEntry, ValidationReport, ValidatorStatus, Violation } from '../types';
 
 export interface Kpi {
   label: string;
@@ -14,15 +15,15 @@ export function deriveKpis(report: ValidationReport, accent: string): Kpi[] {
     { label: 'Violations labelled', actual: report.dataset_actual.violations, target: report.dataset_targets.violations },
     { label: 'Q&A pairs', actual: report.dataset_actual.qa_pairs, target: report.dataset_targets.qa_pairs },
     {
-      label: 'Investigation summaries',
-      actual: report.dataset_actual.investigation_summaries,
-      target: report.dataset_targets.investigation_summaries
+      label: 'Fields LLM-generated',
+      actual: report.dataset_actual.llm_fields,
+      target: report.dataset_targets.llm_fields
     }
   ];
   return defs.map((k) => {
     const ratio = k.actual / k.target;
     const barHeight = Math.round(Math.min(ratio, 1.15) * 100);
-    const barColor = ratio >= 1 ? '#1fa971' : ratio >= 0.9 ? accent : '#e0a83e';
+    const barColor = ratio >= 1 ? 'var(--green-dark)' : ratio >= 0.9 ? accent : 'var(--amber)';
     return { ...k, barHeight, barColor };
   });
 }
@@ -37,9 +38,9 @@ export interface CoverageSlice {
 
 export function deriveCoverage(report: ValidationReport, accent: string) {
   const covColors: Record<string, string> = {
-    normal: '#1fa971',
-    suspicious: '#e0a83e',
-    violation: '#e0555a',
+    normal: 'var(--green-dark)',
+    suspicious: 'var(--amber)',
+    violation: 'var(--red)',
     false_positive: accent
   };
   const entries = Object.entries(report.validators.scenario_coverage) as [string, number][];
@@ -165,20 +166,24 @@ const STAGE_SHORT: Record<string, string> = {
   'Log Generator': 'Generator',
   'Validator': 'Validator',
   'Repair Loop': 'Repair',
-  'TSTR Copilot': 'TSTR'
+  'TSTR Copilot': 'TSTR',
+  'Model Retraining': 'Retrain'
 };
 
-export function deriveLineChart(report: ValidationReport): LineChart {
+/** Recall trend across persisted-model retrain versions, reusing the same LineChart shape (and
+ * SVG rendering JSX) as ProofTab's other trend charts — a different x/y meaning, same hand-rolled
+ * chart primitive, no new charting code. */
+export function deriveRetrainTrend(history: RetrainHistoryEntry[]): LineChart {
   const w = 640;
   const h = 200;
   const padL = 20;
   const padR = 20;
   const padT = 30;
   const padB = 40;
-  const values = report.pipeline_stages.map((s) => s.duration_ms);
-  const max = Math.max(...values);
+  const values = history.map((h) => h.metrics_after.recall);
+  const max = Math.max(...values, 0.01);
   const n = values.length;
-  const stepX = (w - padL - padR) / (n - 1);
+  const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
   const plotBottom = h - padB;
   const points: LineChartPoint[] = values.map((v, i) => {
     const x = padL + i * stepX;
@@ -186,12 +191,206 @@ export function deriveLineChart(report: ValidationReport): LineChart {
     return {
       x: +x.toFixed(1),
       y: +y.toFixed(1),
-      shortName: STAGE_SHORT[report.pipeline_stages[i].stage] || report.pipeline_stages[i].stage,
-      durationLabel: `${v}ms`,
+      shortName: `v${history[i].model_version}`,
+      durationLabel: v.toFixed(2),
       labelY: +(y - 12).toFixed(1)
     };
   });
   const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
-  const areaPath = `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z`;
+  const areaPath = n > 0 ? `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z` : '';
   return { w, h, linePath, areaPath, points, axisY: h - 12 };
+}
+
+/** Citation accuracy across retrain-target model versions — same LineChart shape/rendering as
+ * deriveRetrainTrend above, plotting the fine-tuned model's eval score instead of the
+ * classifier's recall. Citation accuracy (not groundedness) is the primary line since it's the
+ * safety-critical metric: does the model still cite real evidence_log_ids. */
+export function deriveRetrainModelTrend(history: RetrainModelHistoryEntry[]): LineChart {
+  const w = 640;
+  const h = 200;
+  const padL = 20;
+  const padR = 20;
+  const padT = 30;
+  const padB = 40;
+  const values = history.map((entry) => entry.eval.citation_accuracy);
+  const max = Math.max(...values, 0.01);
+  const n = values.length;
+  const stepX = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const plotBottom = h - padB;
+  const points: LineChartPoint[] = values.map((v, i) => {
+    const x = padL + i * stepX;
+    const y = padT + (plotBottom - padT) * (1 - v / max);
+    return {
+      x: +x.toFixed(1),
+      y: +y.toFixed(1),
+      shortName: `v${history[i].model_version}`,
+      durationLabel: v.toFixed(2),
+      labelY: +(y - 12).toFixed(1)
+    };
+  });
+  const linePath = 'M ' + points.map((p) => `${p.x},${p.y}`).join(' L ');
+  const areaPath = n > 0 ? `${linePath} L ${points[n - 1].x},${plotBottom} L ${points[0].x},${plotBottom} Z` : '';
+  return { w, h, linePath, areaPath, points, axisY: h - 12 };
+}
+
+export interface GanttStage {
+  stage: string;
+  status: string;
+  durationMs: number;
+  pct: number;
+}
+
+export function deriveGantt(report: ValidationReport): GanttStage[] {
+  const total = report.pipeline_stages.reduce((sum, s) => sum + s.duration_ms, 0) || 1;
+  return report.pipeline_stages.map((s) => ({
+    stage: STAGE_SHORT[s.stage] || s.stage,
+    status: s.status,
+    durationMs: s.duration_ms,
+    pct: Math.max(1, Math.round((s.duration_ms / total) * 100))
+  }));
+}
+
+const CANONICAL_STAGES = [
+  'Scenario Composer',
+  'Log Generator',
+  'Validator',
+  'Repair Loop',
+  'TSTR Copilot',
+  'Model Retraining',
+  'Output Datasets'
+] as const;
+
+const VALID_STAGE_STATUSES = new Set(['completed', 'running', 'failed', 'skipped']);
+
+/** Folds "stage_update" SSE events into the same PipelineStage[] shape as the on-disk report,
+ * so the Pipeline Flow panel can render live during a run instead of showing stale data from
+ * the previous run (report.pipeline_stages only exists once a run finishes writing files).
+ * Stages the stream hasn't reached yet stay 'waiting', not 'skipped' — 'skipped' is a real,
+ * backend-confirmed outcome (e.g. Repair Loop wasn't needed) and reads as misleading/finished
+ * if shown for a stage that simply hasn't started. */
+export function deriveLiveStages(jobEvents: JobEvent[]): PipelineStage[] {
+  const byName = new Map<string, PipelineStage>(
+    CANONICAL_STAGES.map((stage) => [stage, { stage, status: 'waiting', duration_ms: 0 }])
+  );
+  for (const ev of jobEvents) {
+    if (ev.stage !== 'stage_update' || !ev.pipeline_stage) continue;
+    if (!byName.has(ev.pipeline_stage)) continue;
+    const status = VALID_STAGE_STATUSES.has(ev.status ?? '') ? (ev.status as PipelineStage['status']) : 'waiting';
+    byName.set(ev.pipeline_stage, {
+      stage: ev.pipeline_stage,
+      status,
+      duration_ms: ev.duration_ms ?? 0
+    });
+  }
+  return CANONICAL_STAGES.map((stage) => byName.get(stage)!);
+}
+
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export function deriveSeverityCounts(violations: Violation[]): SeverityCounts {
+  const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const v of violations) {
+    if (v.severity in counts) counts[v.severity as keyof SeverityCounts] += 1;
+  }
+  return counts;
+}
+
+export interface WeightBar {
+  label: string;
+  weight: number;
+  pct: number;
+}
+
+export function deriveWeightBars(weights: Record<string, number> | undefined): WeightBar[] {
+  if (!weights || Object.keys(weights).length === 0) return [];
+  const entries = Object.entries(weights);
+  const max = Math.max(...entries.map(([, w]) => w), 1);
+  return entries
+    .map(([label, weight]) => ({ label: label.replace(/_/g, ' '), weight, pct: Math.max(2, Math.round((weight / max) * 100)) }))
+    .sort((a, b) => b.weight - a.weight);
+}
+
+export interface RiskCell {
+  role: string;
+  sensitivity: string;
+  rate: number;
+  total: number;
+}
+
+export interface RiskMatrix {
+  roles: string[];
+  sensitivities: string[];
+  cells: RiskCell[];
+}
+
+const SENSITIVITY_LEVELS = ['low', 'medium', 'high', 'critical'];
+
+export function deriveRiskMatrix(auditLogs: AuditLog[], violations: Violation[]): RiskMatrix {
+  const violationLogIds = new Set(violations.map((v) => v.log_id));
+  const roles = Array.from(new Set(auditLogs.map((l) => l.role))).sort();
+  const cells: RiskCell[] = [];
+  for (const role of roles) {
+    for (const sensitivity of SENSITIVITY_LEVELS) {
+      const rows = auditLogs.filter((l) => l.role === role && l.sensitivity === sensitivity);
+      const violated = rows.filter((l) => violationLogIds.has(l.log_id)).length;
+      cells.push({
+        role,
+        sensitivity,
+        rate: rows.length ? Math.round((violated / rows.length) * 100) : 0,
+        total: rows.length
+      });
+    }
+  }
+  return { roles, sensitivities: SENSITIVITY_LEVELS, cells };
+}
+
+export interface TypeSeverityCell {
+  type: string;
+  severity: string;
+  count: number;
+}
+
+export interface ViolationMatrix {
+  types: string[];
+  severities: string[];
+  cells: TypeSeverityCell[];
+  max: number;
+}
+
+export function deriveViolationMatrix(violations: Violation[]): ViolationMatrix {
+  const types = Array.from(new Set(violations.map((v) => v.violation_type))).sort();
+  const cells: TypeSeverityCell[] = [];
+  let max = 0;
+  for (const type of types) {
+    for (const severity of SENSITIVITY_LEVELS) {
+      const count = violations.filter((v) => v.violation_type === type && v.severity === severity).length;
+      max = Math.max(max, count);
+      cells.push({ type, severity, count });
+    }
+  }
+  return { types, severities: SENSITIVITY_LEVELS, cells, max };
+}
+
+export interface ActivityBar {
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export function deriveActivityBars(auditLogs: AuditLog[], field: 'system' | 'role'): ActivityBar[] {
+  const counts = new Map<string, number>();
+  for (const log of auditLogs) {
+    const key = log[field];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const max = Math.max(...counts.values(), 1);
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count, pct: Math.round((count / max) * 100) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
 }

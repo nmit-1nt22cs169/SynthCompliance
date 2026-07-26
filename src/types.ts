@@ -78,7 +78,10 @@ export interface ScenarioCoverage {
 
 export interface PipelineStage {
   stage: string;
-  status: 'completed' | 'running' | 'failed' | 'skipped';
+  // 'waiting' is frontend-only — the backend never writes it to validation_report.json, it's
+  // synthesized by deriveLiveStages() as the placeholder for a stage the live stream hasn't
+  // reached yet, distinct from 'skipped' (the pipeline reached it and chose not to run it).
+  status: 'completed' | 'running' | 'failed' | 'skipped' | 'waiting';
   duration_ms: number;
 }
 
@@ -94,6 +97,27 @@ export interface GoldenSetFidelity {
   notes?: string;
 }
 
+export interface ConfusionMatrix {
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+}
+
+export interface RetrainMetrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  accuracy: number;
+}
+
+export interface RetrainHistoryEntry {
+  model_version: number;
+  trained_at: string;
+  cumulative_train_size: number;
+  metrics_after: RetrainMetrics;
+}
+
 export interface TstrMetrics {
   baseline_rare_recall: number;
   synthetic_trained_rare_recall: number;
@@ -105,6 +129,54 @@ export interface TstrMetrics {
   status?: string;
   model?: string;
   notes?: string;
+  // Persisted-model retraining (RETRAIN_MODEL=true, only fires when recall regressed/didn't
+  // improve vs. the previous run — see feedback_loop.improved). Absent/false when disabled
+  // or not triggered this run. `retrain_enabled` distinguishes "feature off" from "feature on,
+  // not triggered this run" — always set, unlike `retrained` which only means "fired this run."
+  retrain_enabled?: boolean;
+  retrained?: boolean;
+  model_version?: number;
+  cumulative_train_size?: number;
+  trained_at?: string;
+  post_retrain_recall?: number;
+  // Rolling history of past retrain snapshots, oldest first — populated even on runs that
+  // didn't retrain this time, so a trend chart isn't limited to retrain-triggering runs only.
+  retrain_history?: RetrainHistoryEntry[];
+  // Before = the previous persisted checkpoint (if any) evaluated on this run's eval set;
+  // null on the very first retrain, since there's no prior checkpoint to compare against.
+  confusion_matrix_before?: ConfusionMatrix | null;
+  confusion_matrix_after?: ConfusionMatrix;
+  metrics_before?: RetrainMetrics | null;
+  metrics_after?: RetrainMetrics;
+  // Transformer scorers (offline cluster-trained via scripts/train_transformers.py,
+  // leakage-safe SOX-train / GDPR-eval pack split). Absent if no checkpoint run.
+  transformer_models?: TransformerModelMetrics[];
+  transformer_best_model?: string;
+  distilbert_rare_recall?: number;
+  distilbert_recall_lift_vs_rule?: number;
+  distilbert_recall_lift_vs_lr?: number;
+  deberta_rare_recall?: number;
+  deberta_recall_lift_vs_rule?: number;
+  deberta_recall_lift_vs_lr?: number;
+  lr_strict_rare_recall?: number;
+  rule_strict_rare_recall?: number;
+}
+
+export interface TransformerModelMetrics {
+  transformer_model: string;
+  transformer_rare_recall: number;
+  transformer_recall_lift_vs_rule: number;
+  transformer_recall_lift_vs_lr: number | null;
+  transformer_status?: string;
+  transformer_train_size?: number;
+  transformer_eval_size?: number;
+  transformer_eval_violation_rate?: number;
+  transformer_train_pack?: string;
+  transformer_eval_pack?: string;
+  transformer_device?: string;
+  transformer_mode?: string;
+  lr_strict_rare_recall?: number;
+  rule_strict_rare_recall?: number;
 }
 
 export interface ValidationReport {
@@ -114,13 +186,13 @@ export interface ValidationReport {
     audit_logs: number;
     violations: number;
     qa_pairs: number;
-    investigation_summaries: number;
+    llm_fields: number;
   };
   dataset_actual: {
     audit_logs: number;
     violations: number;
     qa_pairs: number;
-    investigation_summaries: number;
+    llm_fields: number;
   };
   validators: {
     schema_validity: SchemaValidityValidator;
@@ -149,6 +221,8 @@ export interface DashboardData {
 
 export type TabId = 'overview' | 'pipeline' | 'validation' | 'data' | 'copilot' | 'proof';
 
+export type DataTable = 'auditLogs' | 'violations' | 'qaPairs';
+
 export interface JobConfig {
   packs: string[];
   control_classes: string[];
@@ -160,5 +234,4 @@ export interface JobConfig {
   };
   n_logs: number;
   industry: string;
-  use_seed_fallback: boolean;
 }

@@ -1,32 +1,22 @@
 import type { PipelineStage } from '../types';
 
-const STAGE_NAMES = [
-  'Policy Templates',
-  'Event Generator',
-  'Scenario Composer',
-  'Regulation Annotator',
-  'NeMo Curator',
-  'Output Datasets'
-];
-
 interface BreadcrumbProps {
   stages: PipelineStage[];
 }
 
 export function Breadcrumb({ stages }: BreadcrumbProps) {
-  let lastCompletedIdx = -1;
-  stages.forEach((s, i) => {
-    if (s.status === 'completed') lastCompletedIdx = i;
-  });
-
   return (
     <div className="breadcrumb glass-panel">
-      {STAGE_NAMES.map((name, i) => {
-        const cls = i === lastCompletedIdx ? 'current' : i < lastCompletedIdx ? 'done' : 'upcoming';
+      {stages.map((s, i) => {
+        // Only ever fed a completed run's static report.pipeline_stages (never live SSE
+        // state), so "skipped" here always means "the pipeline finished and chose not to run
+        // this stage" — not "not reached yet." Style it like "done", not "upcoming", or a
+        // finished run with e.g. a skipped Repair Loop looks like it stalled mid-run.
+        const cls = s.status === 'running' ? 'current' : s.status === 'completed' || s.status === 'skipped' ? 'done' : 'upcoming';
         return (
-          <div className="breadcrumb-item" key={name}>
-            <span className={`breadcrumb-stage ${cls}`}>{name}</span>
-            {i < STAGE_NAMES.length - 1 && <span className="breadcrumb-arrow">→</span>}
+          <div className="breadcrumb-item" key={s.stage}>
+            <span className={`breadcrumb-stage ${cls}`}>{s.stage}</span>
+            {i < stages.length - 1 && <span className="breadcrumb-arrow">→</span>}
           </div>
         );
       })}

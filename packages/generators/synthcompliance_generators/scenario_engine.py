@@ -85,6 +85,11 @@ def _iso(dt: datetime) -> str:
 
 
 class ScenarioEngine:
+    """Turns a request (packs, control classes, scenario mix, n_logs) into a concrete generation
+    plan: how many logs of each scenario class (normal/suspicious/violation/false_positive), and
+    how those violation slots split across violation_types. Seeded from `seed:mode:n_logs` so the
+    same request reproduces the same corpus."""
+
     def __init__(
         self,
         *,
@@ -123,6 +128,9 @@ class ScenarioEngine:
         return counts
 
     def compose_plan(self) -> dict[str, Any]:
+        """Spread allocate_counts()'s violation budget across the available violation_types —
+        round-robin once each type has at least 1 (if the budget covers all types), or a first-N
+        subset otherwise — then package everything generate_corpus() needs to build the corpus."""
         counts = self.allocate_counts()
         v_budget = counts["violation"]
         types = [c["violation_type"] for c in self.available]
