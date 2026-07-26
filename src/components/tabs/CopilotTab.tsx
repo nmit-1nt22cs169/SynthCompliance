@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Badge, SeverityBadge } from '../Badge';
 import { StaleBanner } from '../StaleBanner';
-import { fetchRetrainModelStatus, queryCopilot, type RetrainModelSnapshot } from '../../lib/api';
+import {
+  fetchConfig,
+  fetchRetrainModelStatus,
+  getRetrainModelJobStatus,
+  queryCopilot,
+  type RetrainModelSnapshot
+} from '../../lib/api';
 import type { AuditLog, DataTable, Violation } from '../../types';
+
+// Same key PipelineTab.tsx writes when it kicks off a retrain-model job, so this tab can tell
+// "currently training" apart from "enabled but nothing has triggered a retrain yet" without
+// needing that state lifted up through props.
+const RETRAIN_MODEL_JOB_STORAGE_KEY = 'synthcompliance:lastRetrainModelJob';
 
 interface CopilotTabProps {
   violations: Violation[];
@@ -29,17 +40,48 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
   >([]);
   const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
   const [retrainSnapshot, setRetrainSnapshot] = useState<RetrainModelSnapshot | null>(null);
+  const [retrainModelEnabled, setRetrainModelEnabled] = useState<boolean | null>(null);
+  const [retrainTraining, setRetrainTraining] = useState(false);
 
   // Static, fetched once — same "rare to change mid-session" reasoning as ProofTab/PipelineTab's
   // config fetches. Tells the user upfront whether the rephrasing layer below is actually live
   // before they've run a single query.
   useEffect(() => {
+    fetchConfig()
+      .then((c) => setRetrainModelEnabled(c.retrain_model_enabled))
+      .catch(() => setRetrainModelEnabled(null));
     fetchRetrainModelStatus()
       .then((r) => setRetrainSnapshot(r.snapshot))
       .catch(() => setRetrainSnapshot(null));
+    // Best-effort: a retrain-model job PipelineTab started may still be running in the
+    // background (a real LoRA pass can run far longer than the pipeline job itself), in which
+    // case there's deliberately no promoted snapshot yet — that's "training," not "off."
+    const raw = localStorage.getItem(RETRAIN_MODEL_JOB_STORAGE_KEY);
+    if (raw) {
+      try {
+        const { job_id } = JSON.parse(raw) as { job_id: string };
+        getRetrainModelJobStatus(job_id)
+          .then((s) => setRetrainTraining(s.status === 'queued' || s.status === 'running'))
+          .catch(() => setRetrainTraining(false));
+      } catch {
+        setRetrainTraining(false);
+      }
+    }
   }, []);
 
-  const rephraseLive = retrainSnapshot?.status === 'active';
+  // Four distinct real states, not a pass/skip binary — collapsing "rejected" or "training" into
+  // the same "off" copy as "never enabled" is misleading: RETRAIN_MODEL can be true, a retrain can
+  // have actually run for this data, and the badge still needs to say so accurately.
+  const rephraseState: 'off' | 'training' | 'active' | 'rejected' | 'pending' =
+    retrainModelEnabled === false
+      ? 'off'
+      : retrainTraining
+        ? 'training'
+        : retrainSnapshot?.status === 'active'
+          ? 'active'
+          : retrainSnapshot?.status === 'rejected'
+            ? 'rejected'
+            : 'pending';
 
   const submit = async () => {
     if (!queryText.trim()) {
@@ -86,11 +128,28 @@ export function CopilotTab({ violations: _violations, jobActive, onJump }: Copil
         you see are never invented, no matter what's toggled below.
       </p>
       <div className="copilot-status-row">
-        <Badge status={rephraseLive ? 'pass' : 'skipped'} />
+        <Badge
+          status={
+            rephraseState === 'active'
+              ? 'pass'
+              : rephraseState === 'rejected'
+                ? 'fail'
+                : rephraseState === 'training'
+                  ? 'warn'
+                  : 'skipped'
+          }
+        />
         <span className="copilot-status-text">
-          {rephraseLive
-            ? `AI rephrasing is on — a trained model (v${retrainSnapshot?.model_version}) rewrites these answers in more natural language. The facts underneath never change.`
-            : "AI rephrasing is off for this run — answers are shown exactly as matched, in plain rule-based form. This optional layer isn't turned on yet."}
+          {rephraseState === 'active' &&
+            `AI rephrasing is on — a trained model (v${retrainSnapshot?.model_version}) rewrites these answers in more natural language. The facts underneath never change.`}
+          {rephraseState === 'rejected' &&
+            `AI rephrasing retrained after a recent recall regression (v${retrainSnapshot?.model_version}), but the new checkpoint didn't beat the previously active one on citation accuracy/groundedness — it was rejected, so answers are still shown in plain rule-based form.`}
+          {rephraseState === 'training' &&
+            'AI rephrasing retrain is currently running in the background (triggered by the last run\'s recall regression) — answers are shown in plain rule-based form until it finishes and is evaluated.'}
+          {rephraseState === 'pending' &&
+            "AI rephrasing is enabled but hasn't been triggered yet — it only fires after a run's recall fails to improve on the previous one. Answers are shown in plain rule-based form until then."}
+          {rephraseState === 'off' &&
+            "AI rephrasing is off for this deployment (RETRAIN_MODEL is not enabled) — answers are shown exactly as matched, in plain rule-based form."}
         </span>
       </div>
       <div className="copilot-query-row">

@@ -111,7 +111,7 @@ class ScenarioComposerAgent:
         prior_coverage: dict[str, int] | None = None,
         on_event: EventCb | None = None,
     ) -> dict[str, Any]:
-        _emit(on_event, {"stage": "composing", "message": "Analyzing class-balance gaps"})
+        _emit(on_event, {"stage": "composing", "message": "Script: analyzing class-balance gaps"})
         mix = scenario_mix or dict(TRAIN_TARGETS)
         if prior_coverage:
             total = sum(prior_coverage.values()) or 1
@@ -139,7 +139,7 @@ class ScenarioComposerAgent:
             on_event,
             {
                 "stage": "composing",
-                "message": f"Plan ready: {plan['scenario_counts']}",
+                "message": f"Script: plan ready: {plan['scenario_counts']}",
                 "plan": {k: v for k, v in plan.items() if k != "engine"},
             },
         )
@@ -178,7 +178,7 @@ class LogGeneratorAgent:
 
     def run(self, plan: dict[str, Any], on_event: EventCb | None = None) -> dict[str, Any]:
         engine: ScenarioEngine = plan["engine"]
-        _emit(on_event, {"stage": "generating", "message": "Building ID pool", "count": 0})
+        _emit(on_event, {"stage": "generating", "message": "Script: building ID pool", "count": 0})
         corpus = generate_corpus(plan, engine)
         n = len(corpus["audit_logs"])
         # generate_corpus() is deterministic and already complete at this point — this is a
@@ -189,7 +189,7 @@ class LogGeneratorAgent:
             on_event,
             {
                 "stage": "generating",
-                "message": f"Assigned {n} log IDs",
+                "message": f"Script: assigned {n} log IDs (deterministic scaffold — IDs, timestamps, taxonomy keys)",
                 "count": n,
                 "total": n,
             },
@@ -200,7 +200,7 @@ class LogGeneratorAgent:
             on_event,
             {
                 "stage": "generating",
-                "message": f"Using model: {provider.model}" if provider.available else "No LLM provider configured — deterministic generation",
+                "message": f"LLM ({provider.model}): provider ready" if provider.available else "Script: no LLM provider configured — remaining fields use deterministic fallback",
                 "model": provider.model if provider.available else None,
                 "provider_available": provider.available,
             },
@@ -252,7 +252,7 @@ class LogGeneratorAgent:
                     on_event,
                     {
                         "stage": "generating",
-                        "message": f"Nemotron: writing log content {done}/{total}",
+                        "message": f"LLM ({provider.model}): writing log content {done}/{total}",
                         "count": done,
                         "total": total,
                     },
@@ -358,7 +358,7 @@ class LogGeneratorAgent:
                 {
                     "stage": "generating",
                     "message": (
-                        f"Nemotron log content complete: {counts['user_id']} users, "
+                        f"LLM ({provider.model}): log content complete: {counts['user_id']} users, "
                         f"{counts['resource']} resources, {counts['action']} actions, "
                         f"{counts['outcome']} outcomes, {counts['sensitivity']} sensitivities "
                         f"({total} logs)"
@@ -377,7 +377,7 @@ class LogGeneratorAgent:
                     on_event,
                     {
                         "stage": "generating",
-                        "message": f"Nemotron: writing violation explanations {done}/{total}",
+                        "message": f"LLM ({provider.model}): writing violation explanations {done}/{total}",
                         "count": done,
                         "total": total,
                     },
@@ -431,7 +431,7 @@ class LogGeneratorAgent:
                 on_event,
                 {
                     "stage": "generating",
-                    "message": f"Nemotron explanations complete: {written}/{total} written",
+                    "message": f"LLM ({provider.model}): explanations complete: {written}/{total} written",
                 },
             )
             llm_fields_actual += written
@@ -440,7 +440,7 @@ class LogGeneratorAgent:
             on_event,
             {
                 "stage": "generating",
-                "message": f"Complete: {n} logs, {len(corpus['violations'])} violations",
+                "message": f"Script: complete: {n} logs, {len(corpus['violations'])} violations",
                 "count": n,
                 "total": n,
             },
@@ -492,7 +492,7 @@ class ValidatorRepairAgent:
 
         for iteration in range(1, self.MAX_ITERS + 1):
             t0 = time.time()
-            _emit(on_event, {"stage": "validating", "message": f"Validation pass {iteration}"})
+            _emit(on_event, {"stage": "validating", "message": f"Script: validation pass {iteration}"})
             report = build_validation_report(
                 run_id=run_id,
                 audit_logs=audit_logs,
@@ -521,7 +521,7 @@ class ValidatorRepairAgent:
             pii_ok = report["validators"]["pii_leakage"]["status"] != "fail"
 
             if not failing_logs and not failing_violations and schema_ok and label_ok and pii_ok:
-                _emit(on_event, {"stage": "validating", "message": "All validators passed", "failures": 0})
+                _emit(on_event, {"stage": "validating", "message": "Script: all validators passed", "failures": 0})
                 break
 
             n_fail = len(failing_logs) + len(failing_violations)
@@ -529,7 +529,7 @@ class ValidatorRepairAgent:
                 on_event,
                 {
                     "stage": "repairing",
-                    "message": f"{n_fail} failures detected — repairing (iter {iteration})",
+                    "message": f"Script: {n_fail} failures detected — repairing (iter {iteration})",
                     "failures": n_fail,
                 },
             )
@@ -580,13 +580,13 @@ class ValidatorRepairAgent:
                 "duration_ms": int((time.time() - t1) * 1000),
             }
             _emit_stage(on_event, "Repair Loop", "completed", stages[3]["duration_ms"])
-            _emit(on_event, {"stage": "validating", "message": "Re-validating after repair"})
+            _emit(on_event, {"stage": "validating", "message": "Script: re-validating after repair"})
         else:
             _emit(
                 on_event,
                 {
                     "stage": "validating",
-                    "message": "Max repair iterations reached — writing best-effort report",
+                    "message": "Script: max repair iterations reached — writing best-effort report",
                     "failures": len(failing_logs) + len(failing_violations),
                 },
             )
@@ -634,7 +634,7 @@ class TSTRCopilotAgent:
         logs/labels are needed by the caller for a possible persisted-model retrain step
         (see PipelineOrchestrator.run) but are never embedded in `metrics` itself, since that
         dict is written verbatim into validation_report.json."""
-        _emit(on_event, {"stage": "tstr", "message": "Building realistic-ratio EVAL set"})
+        _emit(on_event, {"stage": "tstr", "message": "Script: building realistic-ratio EVAL set"})
         engine = ScenarioEngine(
             packs=packs,
             control_classes=control_classes,
@@ -664,7 +664,7 @@ class TSTRCopilotAgent:
             on_event,
             {
                 "stage": "tstr",
-                "message": f"Rare-class recall {metrics['baseline_rare_recall']:.2f} → {metrics['synthetic_trained_rare_recall']:.2f}",
+                "message": f"Script (sklearn LogisticRegression): rare-class recall {metrics['baseline_rare_recall']:.2f} → {metrics['synthetic_trained_rare_recall']:.2f}",
                 "tstr": metrics,
             },
         )

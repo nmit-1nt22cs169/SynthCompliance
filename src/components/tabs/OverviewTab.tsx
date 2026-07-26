@@ -133,7 +133,10 @@ export function OverviewTab({ report, auditLogs, violations, accent, jobActive, 
         <div className="kpi-grid">
           <div className="kpi-card">
             <div className="kpi-value">{feedback?.new_violation_patterns?.length ? feedback.new_violation_patterns.join(', ') : 'none yet'}</div>
-            <div className="kpi-label">New patterns detected</div>
+            <div className="kpi-label">
+              New patterns detected
+              <InfoTip text="Violation types seen in this run that weren't part of the prior-run baseline. Feeds the adaptive loop above: each new type gets upweighted so the next run generates more of it." />
+            </div>
             <div className="validation-detail">The next run will bias generation toward these violation types.</div>
           </div>
           <div className="kpi-card">
